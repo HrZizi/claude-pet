@@ -25,6 +25,7 @@ TICK_MS = 125
 SNAP = 40
 PANEL_W = 158
 PET_TIME, WANT_TIME, AWAKE_TIME = 3.5, 120, 20
+PREVIEW_SECONDS = 20   # how long a menu 'Preview animation' choice lasts
 HDR = 16                # height of the account header line on the usage card
 LIMITS_EVERY = 180      # seconds between usage-limit requests (when enabled)
 
@@ -74,6 +75,7 @@ class PetApp:
         self.sessions = {}
         self._state_mtime = None
         self.forced = None
+        self.forced_until = 0
         self.petted_at = 0.0
         self.theme = THEMES["light" if ps.light_theme() else "dark"]
         self.tick_n = 0
@@ -348,6 +350,8 @@ class PetApp:
                 self.theme = THEMES["light" if ps.light_theme() else "dark"]
             if self.panel_h() != was:
                 self.relayout()
+        if self.forced and time.time() > self.forced_until and not self.demo:
+            self.forced = None                       # preview over: back to following Claude
         state = self.forced or self.summarize()
         self.tick_n += 1
         key = render.pose(self.cfg["pet"], state, self.tick_n)
@@ -570,7 +574,9 @@ class PetApp:
         ps.set_startup(not ps.startup_enabled())
 
     def set_forced(self, v):
+        """Preview an animation. It expires by itself so it can never silently hide what Claude is really doing."""
         self.forced = v
+        self.forced_until = time.time() + PREVIEW_SECONDS if v else 0
 
     def menu_items(self):
         act, sel = self.active(), self.selection()
