@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like v0.1.0 to build the Windows installer + portable zip and the macOS app,
+# Push a tag like v0.1.1 to build the Windows installer + portable zip and the macOS app,
 # and attach them to a GitHub release.
 on:
   push:
@@ -20,15 +20,9 @@ jobs:
       - run: python -m pip install -e ".[dev]"
       - run: python -m pytest -q
       - run: python scripts/build.py
-      - name: Smoke-test the installer (silent install, run, uninstall)
+      - name: Smoke-test the artifacts (portable zip + silent install / uninstall) and check the tag matches the build
         shell: pwsh
-        run: |
-          $d = Join-Path $env:RUNNER_TEMP "ClaudePet"
-          $setup = (Get-ChildItem dist/ClaudePet-Setup-*.exe).FullName
-          Start-Process $setup -ArgumentList "--silent","--dir",$d,"--no-connect","--no-launch" -Wait
-          & "$d\claude-pet-cli.exe" --version
-          & "$d\claude-pet-cli.exe" doctor
-          Start-Process "$d\ClaudePet-Uninstall.exe" -ArgumentList "--uninstall","--silent","--keep-hooks" -Wait
+        run: ./scripts/smoke_test.ps1 -Dir dist -Version ("${{ github.ref_name }}".TrimStart("v"))
       - uses: softprops/action-gh-release@v2
         with:
           files: |

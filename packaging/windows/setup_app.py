@@ -58,8 +58,35 @@ def make_shortcut(link, target, workdir):
     run_hidden(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps])
 
 
-def stop_running():
-    run_hidden(["taskkill", "/F", "/IM", EXE])
+def link_target(link):
+    """Where a .lnk shortcut points ('' if it does not exist)."""
+    if not link.exists():
+        return ""
+    ps = "(New-Object -ComObject WScript.Shell).CreateShortcut('%s').TargetPath" % link
+    return run_hidden(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps]).stdout.decode(errors="ignore").strip()
+
+
+def is_inside(path, folder):
+    try:
+        return bool(path) and Path(path).resolve().is_relative_to(Path(folder).resolve())
+    except (OSError, ValueError):
+        return False
+
+
+def registered_location():
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as k:
+            return Path(winreg.QueryValueEx(k, "InstallLocation")[0])
+    except OSError:
+        return None
+
+
+def stop_running(target):
+    """Stop ClaudePet.exe running from `target` only (another copy elsewhere is left alone)."""
+    ps = ("Get-CimInstance Win32_Process -Filter \"Name='%s'\" | Where-Object { $_.ExecutablePath -like '%s\\*' } "
+          "| ForEach-Object { Stop-Process -Id $_.ProcessId -Force }" % (EXE, str(target).replace("'", "''")))
+    run_hidden(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps])
     time.sleep(0.6)
 
 
@@ -78,7 +105,7 @@ def rmtree_retry(path, tries=8):
 # ---------------------------------------------------------------- install
 def install(target, connect=True, start_menu=True, desktop=False, register=True, progress=None):
     target = Path(target)
-    stop_running()
+    stop_running(target)
     if (target / "_internal").exists():
         rmtree_retry(target / "_internal")                       # clean upgrade
     target.mkdir(parents=True, exist_ok=True)
@@ -117,29 +144,28 @@ def installed_dir():
     here = Path(sys.executable).resolve().parent
     if (here / EXE).exists():
         return here
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY) as k:
-            return Path(winreg.QueryValueEx(k, "InstallLocation")[0])
-    except OSError:
-        return None
+    return registered_location()
 
 
 def uninstall(target, keep_hooks=False):
     target = Path(target)
-    stop_running()
+    stop_running(target)
     if not keep_hooks and (target / CLI).exists():
         run_hidden([str(target / CLI), "uninstall"])            # remove the hooks from ~/.claude/settings.json
+    # only remove what belongs to THIS install (another copy may own the same shortcut / Apps entry)
     for link in (start_menu_link(), desktop_link()):
+        if is_inside(link_target(link), target):
+            try:
+                link.unlink()
+            except OSError:
+                pass
+    reg = registered_location()
+    if reg and reg.resolve() == target.resolve():
         try:
-            link.unlink()
+            import winreg
+            winreg.DeleteKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY)
         except OSError:
             pass
-    try:
-        import winreg
-        winreg.DeleteKey(winreg.HKEY_CURRENT_USER, UNINSTALL_KEY)
-    except OSError:
-        pass
     return rmtree_retry(target)
 
 

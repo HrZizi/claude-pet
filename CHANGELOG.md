@@ -7,6 +7,7 @@ All notable changes to this project are documented here. The format follows [Kee
 ### Fixed
 - A menu *Preview animation* choice now expires after 20 seconds. Previously it overrode what Claude was really doing indefinitely
   and invisibly (e.g. leaving "Asleep" selected made the pet look broken while sessions were running).
+- The installer / uninstaller only stop and remove the copy in their own folder (and that copy's Start menu shortcut and *Apps* entry), not another running or installed copy.
 
 ## [0.1.0] - 2026-10-10
 
