@@ -1,4 +1,6 @@
-"""Procedural pixel-art pets.
+"""Procedural pixel-art pets: the SOURCE of the three built-in sprite packs (see bake_builtin_packs.py).
+
+Not used at runtime: the app only loads sprite packs.
 
 Each pet is built from shaded, outlined shapes (ellipses / polygons) so poses can change
 (ears, tail, lying down, faces) without hand-drawing every frame.
@@ -341,19 +343,3 @@ def draw(pet, **pose):
     p = dict(BASE)
     p.update(pose)
     return DRAWERS[pet](p)
-
-
-# ----------------------------------------------------------------- overlay glyphs
-GLYPHS = {
-    "!": ["X", "X", "X", ".", "X"],
-    "z": ["XXXXX", "...X.", "..X..", ".X...", "XXXXX"],
-    "zs": ["XXX", ".X.", "XXX"],
-    "check": ["...X", "..X.", "X.X.", ".X.."],
-    "spark": [".X.", "XXX", ".X."],
-    "dot": ["X", "X"],
-    "heart": [".X.X.", "XXXXX", ".XXX.", "..X.."],
-    "heart3": ["X.X", "XXX", ".X."],
-    "sweat": [".X.", "XXX", "XXX", ".X."],
-    "hand": ["..KKKK..", ".KSSSSKK", "KSSSSSSSK", "KSSSSSSSK", ".KSSSSSK.", "..KKKKK.."],
-}
-MULTI = {"hand": {"K": "#8A5A3C", "S": "#F6CFA5"}}

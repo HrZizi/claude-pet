@@ -35,6 +35,7 @@ $v = (& "$p\claude-pet-cli.exe" --version).Trim()
 Check "cli reports a version ($v)" ($v -match '^\d+\.\d+\.\d+$')
 if ($Version) { Check "version is $Version" ($v -eq $Version) }
 Check "keeps its data beside the exe" ((& "$p\claude-pet-cli.exe" doctor | Out-String) -match [regex]::Escape("$p\data"))
+Check "built-in sprite packs load (claude, eevee, bulbasaur)" ((& "$p\claude-pet-cli.exe" pack list | Out-String) -match "claude\s.*built-in(?s).*eevee.*built-in(?s).*bulbasaur.*built-in")
 $gui = Start-Process "$p\ClaudePet.exe" -ArgumentList "--demo" -PassThru
 Start-Sleep 5
 Check "ClaudePet.exe --demo starts and keeps running" (-not $gui.HasExited)
@@ -49,6 +50,7 @@ Check "silent install exits 0" ($proc.ExitCode -eq 0)
 Check "installed files + uninstaller" ((Test-Path "$d\ClaudePet.exe") -and (Test-Path "$d\claude-pet-cli.exe") -and (Test-Path "$d\ClaudePet-Uninstall.exe"))
 Check "no portable.flag in an installed copy" (-not (Test-Path "$d\portable.flag"))
 Check "installed cli runs" ((& "$d\claude-pet-cli.exe" --version).Trim() -eq $v)
+Check "installed build finds its built-in packs" ((& "$d\claude-pet-cli.exe" pack list | Out-String) -match "bulbasaur")
 $null = Start-Process "$d\ClaudePet-Uninstall.exe" -ArgumentList "--uninstall", "--silent", "--keep-hooks" -Wait -PassThru
 $gone = $false
 foreach ($i in 1..30) { if (-not (Test-Path $d)) { $gone = $true; break }; Start-Sleep -Milliseconds 500 }

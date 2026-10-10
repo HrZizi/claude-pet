@@ -45,6 +45,9 @@ version = { attr = "claude_pet.__version__" }
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+claude_pet = ["packs/*/pack.json", "packs/*/*.png"]       # the built-in sprite packs
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]

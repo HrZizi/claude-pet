@@ -1,0 +1,42 @@
+{
+  "format": 1,
+  "name": "Bulbasaur",
+  "author": "claude-pet contributors",
+  "license": "MIT",
+  "description": "Built-in pet, baked from scripts/procedural/sprites.py",
+  "frame": [
+    28,
+    30
+  ],
+  "effects": false,
+  "states": {
+    "sleep": {
+      "file": "sleep.png",
+      "fps": 8
+    },
+    "idle": {
+      "file": "idle.png",
+      "fps": 8
+    },
+    "working": {
+      "file": "working.png",
+      "fps": 8
+    },
+    "attention": {
+      "file": "attention.png",
+      "fps": 8
+    },
+    "celebrate": {
+      "file": "celebrate.png",
+      "fps": 8
+    },
+    "wants": {
+      "file": "wants.png",
+      "fps": 8
+    },
+    "petted": {
+      "file": "petted.png",
+      "fps": 8
+    }
+  }
+}

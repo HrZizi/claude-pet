@@ -14,8 +14,14 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
+sys.path.insert(0, str(ROOT / "scripts" / "procedural"))     # only the icon needs the procedural source art
 
-from claude_pet.art import render, sprites   # noqa: E402
+import sprites as proc_sprites                              # noqa: E402
+from claude_pet.art import engine, glyphs                   # noqa: E402
+from claude_pet.art import pack as packmod                  # noqa: E402
+
+PACKS, _ = packmod.discover()
+BUILTIN = {k: v for k, v in PACKS.items() if v.builtin}
 
 IMAGES = ROOT / "docs" / "images"
 BG = (30, 30, 34)
@@ -26,12 +32,13 @@ def hexrgb(c):
 
 
 def frame_image(pet, state, tick, scale, bg=BG):
-    g = render.grid(render.pose(pet, state, tick))
-    im = Image.new("RGB", (render.GW * scale, render.GH * scale), bg)
+    pack = PACKS[pet] if isinstance(pet, str) else pet
+    g = engine.grid(pack, engine.pose(pack, state, tick))
+    im = Image.new("RGB", (len(g[0]) * scale, len(g) * scale), bg)
     px = im.load()
     for y, row in enumerate(g):
         for x, c in enumerate(row):
-            if c != render.KEY:
+            if c != engine.KEY:
                 col = hexrgb(c)
                 for yy in range(scale):
                     for xx in range(scale):
@@ -46,13 +53,13 @@ def make_icon():
     img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.rounded_rectangle((0, 0, S - 1, S - 1), radius=7, fill=(43, 43, 48, 255), outline=(70, 70, 77, 255))
-    px = sprites.draw("claude", face="happy", arm=1)
+    px = proc_sprites.draw("claude", face="happy", arm=1)
     xs, ys = [p[0] for p in px], [p[1] for p in px]
     ox = (S - (max(xs) - min(xs) + 1)) // 2 - min(xs)
     oy = (S - (max(ys) - min(ys) + 1)) // 2 - min(ys) + 2
     for (x, y), c in px.items():
         img.putpixel((x + ox, y + oy), hexrgb(c) + (255,))
-    heart = sprites.GLYPHS["heart"]
+    heart = glyphs.GLYPHS["heart"]
     for j, row in enumerate(heart):
         for i, ch in enumerate(row):
             if ch == "X":
@@ -97,7 +104,7 @@ def write_gifs():
     scale = 5
     f = font(15)
     # one GIF per pet: all states in sequence, captioned
-    for pet in sprites.PETS:
+    for pet in BUILTIN:
         frames = []
         for state, text, n in STATE_TEXT:
             for t in range(n):
@@ -111,7 +118,7 @@ def write_gifs():
         save_gif(frames, IMAGES / ("pet-%s.gif" % pet))
     # hero: all three pets side by side, stepping through the states together
     frames = []
-    pets = list(sprites.PETS)
+    pets = list(BUILTIN)
     for state, text, n in STATE_TEXT:
         for t in range(n):
             ims = [frame_image(p, state, t, 4) for p in pets]
@@ -129,7 +136,7 @@ def write_gifs():
     # static contact sheet of every state
     s = 3
     cells = [(p, st) for p in pets for st, _, _ in STATE_TEXT]
-    cw, ch = render.GW * s, render.GH * s
+    cw, ch = engine.grid_size(PACKS[pets[0]])[0] * s, engine.grid_size(PACKS[pets[0]])[1] * s
     sheet = Image.new("RGB", (cw * len(STATE_TEXT), ch * len(pets)), BG)
     for i, (p, st) in enumerate(cells):
         sheet.paste(frame_image(p, st, 6, s), ((i % len(STATE_TEXT)) * cw, (i // len(STATE_TEXT)) * ch))

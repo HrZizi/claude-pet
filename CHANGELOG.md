@@ -2,6 +2,19 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- **Custom sprite packs.** Any folder with a `pack.json` and PNG strips is a pet: right-click → Pet → Add sprite pack / Open sprite
+  packs folder, or `claude-pet pack new | validate | install | export | list`. Packs are data only (no code), validated, and
+  size-limited. A pack with just an `idle` animation gets sleeping, working, distressed, celebrating, wanting-a-pet and petted
+  behaviour from the engine. See `docs/SPRITE_PACKS.md`.
+- Dependency-free PNG reader / writer (all colour types, bit depths and filters).
+
+### Changed
+- The built-in Claude, Eevee and Bulbasaur are now ordinary sprite packs, baked from their procedural source art
+  (moved to `scripts/procedural`). Animations are baked as exact loops, so a few timings (idle, working) were simplified.
+
 ## [0.1.1] - 2026-10-10
 
 ### Fixed

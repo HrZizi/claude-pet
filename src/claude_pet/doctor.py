@@ -18,6 +18,11 @@ def main():
         print("tk       ", tkinter.TkVersion)
     except Exception as e:
         print("tk       ", "MISSING:", e)
+    from .art import pack as packs
+    found, errors = packs.discover()
+    print("sprite packs:", ", ".join("%s%s" % (k, "" if v.builtin else " (custom)") for k, v in found.items()))
+    for folder, msg in errors:
+        print("  INVALID pack:", msg)
     print("accounts:")
     for a in accounts.detect([], {}):
         readable = (a["source"] == "cli" or bool(a["dir"])) and limits_api.has_login(a["dir"])

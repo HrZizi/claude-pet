@@ -21,6 +21,7 @@ elif IS_MAC and (ROOT / "assets" / "icon.icns").exists():
 a = Analysis(
     [str(ROOT / "packaging" / "entry.py")],
     pathex=[str(ROOT / "src")],
+    datas=[(str(ROOT / "src" / "claude_pet" / "packs"), "claude_pet/packs")],      # built-in sprite packs
     hiddenimports=[],
     excludes=["PIL", "numpy", "pytest", "unittest", "pydoc", "test", "setuptools", "pip", "distutils"],
     noarchive=False,

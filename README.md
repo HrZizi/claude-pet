@@ -23,7 +23,7 @@ Claude Code is great at running for minutes while you do something else. **Claud
 ## Features
 
 - **Reacts to Claude Code in real time**: asleep when idle, typing on a laptop while Claude works, *distraught* when it needs your permission, jumping for joy when it is done, and begging to be petted afterwards. Click it to pet it.
-- **Three pets**, all pixel art drawn in code: Claude, Eevee and Bulbasaur. Switch from the right-click menu.
+- **Three pets** (Claude, Eevee, Bulbasaur) and **custom sprite packs**: draw your own pet in any pixel-art editor and drop it in. See [Custom pets](#custom-pets-sprite-packs).
 - **Usage card**: your real 5-hour and weekly limits (with reset countdowns), or tokens used, per account. Click it to flip between views, or let it rotate.
 - **Multiple accounts**: detects your CLI login and every Claude Desktop account automatically, and follows whichever account the active session belongs to.
 - **Sits on the taskbar edge, but moves anywhere**: drag it; it snaps back onto the taskbar / Dock when dropped nearby. Multi-monitor aware.
@@ -99,7 +99,22 @@ Try it without Claude at all: `claude-pet --demo` runs with canned accounts and 
 
 </details>
 
-Right-click → **Preview animation** to see any state on demand.
+Right-click → **Preview animation** to see any state on demand (it ends by itself after 20 seconds).
+
+### Custom pets (sprite packs)
+
+Every pet, including the three shipped ones, is a **sprite pack**: a folder with a `pack.json` and PNG strips. Packs are
+data only, never code, so they are safe to install. A pack with just an `idle` animation already works: Claude Pet adds
+the sleeping *zzz*, typing dots, distress, sparkles, hearts and petting hand for you.
+
+```bash
+claude-pet pack new my-pet --name "My Pet"   # scaffold a working pack to edit
+claude-pet pack validate my-pet              # check it
+claude-pet pack install my-pet               # then: right-click > Pet > Reload sprite packs
+```
+
+Or right-click → **Pet → Add sprite pack...** to install a `.zip`, **Open sprite packs folder** to drop folders in. Start
+from a shipped pet with `claude-pet pack export eevee my-eevee`. Full format and tips: **[docs/SPRITE_PACKS.md](docs/SPRITE_PACKS.md)**.
 
 ## Usage card & accounts
 
@@ -196,24 +211,25 @@ Project layout:
 src/claude_pet/
   app.py            the pet window, animation loop, usage card, menu wiring
   cli.py            command line entry point
-  art/              sprites.py (procedural pixel art), render.py (poses & animation)
+  art/              pack.py (sprite pack loading / validation / install), engine.py (frames, motion, effects), png.py (stdlib PNG), glyphs.py
   claude/           everything that talks to Claude Code: accounts, usage, limits_api, hook, integration
   ui/               popup_menu.py (custom context menu), platform_support.py (Windows / macOS specifics)
+packs/ (inside src/claude_pet)   the built-in pets as sprite packs (pack.json + PNG strips)
 assets/             app icon (.ico / .icns / .png)
 docs/               architecture, accounts, macOS, troubleshooting + README images
 packaging/          PyInstaller spec, Windows installer / uninstaller (setup_app.py)
-scripts/            build + asset generation
+scripts/            build, asset generation, procedural/ (source art of the built-in pets) + bake_builtin_packs.py
 tests/              pytest suite
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Adding a new pet means writing one function in `art/sprites.py`.
+See [CONTRIBUTING.md](CONTRIBUTING.md). Adding a pet means creating a sprite pack (no code needed).
 
 ## Roadmap
 
 - [ ] Verify and polish macOS on real hardware
 - [ ] Linux (X11) support
 - [ ] Signed Windows builds
-- [ ] More pets and user-provided sprite packs
+- [ ] A gallery of community sprite packs
 
 ## Disclaimer
 

@@ -5,7 +5,9 @@ Right-click (macOS: two-finger / Ctrl-click) for options. Click the pet to pet i
 snaps to the taskbar / Dock edge when you drop it near it.
 """
 import json
+import os
 import socket
+import subprocess
 import sys
 import threading
 import time
@@ -15,7 +17,8 @@ from pathlib import Path
 
 from . import demo as demo_data
 from . import paths
-from .art import render, sprites
+from .art import engine
+from .art import pack as packs
 from .claude import accounts, integration, limits_api, usage
 from .ui import platform_support as ps
 from .ui.popup_menu import Menu, rounded
@@ -54,8 +57,9 @@ class PetApp:
             self.cfg.update(json.loads(self.cfg_path.read_text(encoding="utf-8-sig")))
         except Exception:
             pass
-        if self.cfg["pet"] not in sprites.PETS:
-            self.cfg["pet"] = "claude"
+        self.packs, self.pack_errors = packs.discover()        # built-in + user sprite packs
+        if self.cfg["pet"] not in self.packs:
+            self.cfg["pet"] = "claude" if "claude" in self.packs else next(iter(self.packs))
         c = self.cfg
         if not isinstance(c.get("logins"), list):
             c["logins"] = []
@@ -118,8 +122,11 @@ class PetApp:
 
     # ---- geometry
     def sprite_px(self):
-        gw, gh = render.grid_size(self.cfg["pet"])
+        gw, gh = engine.grid_size(self.current_pack())
         return gw * self.cfg["scale"], gh * self.cfg["scale"]
+
+    def current_pack(self):
+        return self.packs.get(self.cfg["pet"]) or next(iter(self.packs.values()))
 
     def panel_h(self):
         if not self.cfg["show_usage"]:
@@ -248,16 +255,24 @@ class PetApp:
     # ---- drawing
     def image_for(self, key):
         sc = self.cfg["scale"]
-        k = (key, sc)
+        pack = self.current_pack()
+        k = (pack.id, key, sc)
         img = self.images.get(k)
         if img is None:
-            g = render.grid(key)
+            try:
+                g = engine.grid(pack, key)
+            except packs.PackError as e:                 # a pack broke while decoding: fall back to a built-in
+                self.pack_errors.append((str(pack.root), str(e)))
+                self.packs.pop(pack.id, None)
+                self.cfg["pet"] = "claude" if "claude" in self.packs else next(iter(self.packs))
+                self.relayout()
+                return self.image_for(engine.pose(self.current_pack(), "idle", 0))
             small = tk.PhotoImage(width=len(g[0]), height=len(g))
             small.put(" ".join("{" + " ".join(row) + "}" for row in g), to=(0, 0))
             if ps.needs_alpha_images():
                 for yy, row in enumerate(g):
                     for xx, col in enumerate(row):
-                        if col == render.KEY:
+                        if col == engine.KEY:
                             small.transparency_set(xx, yy, True)
             img = small.zoom(sc, sc)
             if len(self.images) > 600:
@@ -354,7 +369,7 @@ class PetApp:
             self.forced = None                       # preview over: back to following Claude
         state = self.forced or self.summarize()
         self.tick_n += 1
-        key = render.pose(self.cfg["pet"], state, self.tick_n)
+        key = engine.pose(self.current_pack(), state, self.tick_n)
         self.canvas.delete("all")
         self.canvas.create_image(0, self.h, anchor="sw", image=self.image_for(key))
         if self.cfg["show_usage"]:
@@ -528,6 +543,46 @@ class PetApp:
         self.save()
         self.relayout()
 
+    # ---- sprite packs
+    def reload_packs(self):
+        self.packs, self.pack_errors = packs.discover()
+        self.images.clear()
+        if self.cfg["pet"] not in self.packs:
+            self.cfg["pet"] = "claude" if "claude" in self.packs else next(iter(self.packs))
+        self.relayout()
+
+    def open_packs_dir(self):
+        d = str(packs.user_dir())
+        try:
+            if ps.IS_WIN:
+                os.startfile(d)
+            elif ps.IS_MAC:
+                subprocess.Popen(["open", d])
+            else:
+                subprocess.Popen(["xdg-open", d])
+        except OSError as e:
+            messagebox.showinfo("Sprite packs folder", "Put sprite pack folders in:\n%s\n\n(%s)" % (d, e))
+
+    def add_pack(self):
+        path = filedialog.askopenfilename(parent=self.root, title="Choose a sprite pack (.zip)",
+                                          filetypes=[("Sprite pack", "*.zip"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            try:
+                pack = packs.install(path)
+            except packs.PackError as e:
+                if "already installed" not in str(e) or not messagebox.askyesno(
+                        "Sprite pack", "%s\n\nReplace it?" % e):
+                    raise
+                pack = packs.install(path, overwrite=True)
+        except packs.PackError as e:
+            messagebox.showerror("Could not add the sprite pack", str(e))
+            return
+        self.reload_packs()
+        if pack.id in self.packs:
+            self.set_pet(pack.id)
+
     def set_scale(self, n):
         self.cfg["scale"] = n
         self.save()
@@ -591,8 +646,15 @@ class PetApp:
             acc.append(("item", "Remove login folder...", self.remove_login))
         items = [("sub", "Account: %s%s" % (act["name"], "  (auto)" if sel == "auto" else ""), acc)]
 
-        items.append(("sub", "Pet", [("radio", spec["name"], self.cfg["pet"] == k, lambda k=k: self.set_pet(k))
-                                      for k, spec in sprites.PETS.items()]))
+        pets = [("radio", pk.name + ("" if pk.builtin else "  (custom)"), self.cfg["pet"] == pid,
+                 lambda pid=pid: self.set_pet(pid)) for pid, pk in self.packs.items()]
+        pets += [("sep",), ("item", "Add sprite pack...", self.add_pack),
+                 ("item", "Open sprite packs folder", self.open_packs_dir),
+                 ("item", "Reload sprite packs", self.reload_packs)]
+        if self.pack_errors:
+            pets.append(("label", "%d sprite pack(s) could not be loaded:" % len(self.pack_errors)))
+            pets += [("label", "  " + msg[:70]) for _, msg in self.pack_errors[:3]]
+        items.append(("sub", "Pet", pets))
         items.append(("sub", "Size", [("radio", lb, self.cfg["scale"] == n, lambda n=n: self.set_scale(n))
                                        for lb, n in (("Small", 2), ("Medium", 3), ("Large", 4), ("Huge", 5))]))
         items.append(("sep",))

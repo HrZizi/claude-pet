@@ -22,6 +22,14 @@ claude-pet --demo                                # run the UI with canned data, 
 
 ## Adding a pet
 
+The easy way (no code): make a **sprite pack**, see [docs/SPRITE_PACKS.md](docs/SPRITE_PACKS.md). `claude-pet pack new` scaffolds one and
+`claude-pet pack validate` checks it. To contribute it to the built-in set, open a PR adding the folder under
+`src/claude_pet/packs/` (only art you made or that is freely licensed).
+
+The three shipped pets are *generated*: the source art is procedural code in `scripts/procedural/sprites.py`, baked into
+packs with `python scripts/bake_builtin_packs.py` (a test fails if the packs and the source drift apart). Old instructions
+for writing a procedural pet:
+
 1. Write a drawing function in `src/claude_pet/art/sprites.py` (see `eevee()` as a model): paint parts with `Cv.paint`, reuse the shared `face()` for expressions, honour `ear`, `tail` and `lie`.
 2. Register it in `PETS` and `DRAWERS`.
 3. `python scripts/make_assets.py` regenerates the preview GIFs; `pytest` checks that every state renders.

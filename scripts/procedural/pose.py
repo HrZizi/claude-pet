@@ -1,9 +1,12 @@
-"""Turns (pet, state, tick) into a small grid of colours. No Tk in here so it can be previewed.
+"""Build-time only: turns (pet, state, tick) into a grid of colours so the built-in pets can be baked into packs.
+
+(Was the runtime renderer before sprite packs.) Original docstring: No Tk in here so it can be previewed.
 
 States: sleep (idle), idle (awake, just woke), working, attention (distraught),
         celebrate (just finished), wants (wants a pet), petted.
 """
-from . import sprites
+import sprites
+from claude_pet.art import glyphs
 
 KEY = "#010203"          # colour treated as transparent by the window
 GW = 28                  # grid width: 24px sprite + room to shake / glyphs
@@ -42,9 +45,9 @@ def pose(pet, state, t):
     elif state == "idle":                       # awake and calm
         d.update(face="blink" if t % 36 in (0, 1) else "open",
                  tail=(0, 1, 0, -1)[(t // 6) % 4],
-                 ear=1 if t % 50 in (10, 11, 12) else 0)
+                 ear=1 if t % 72 in (30, 31, 32) else 0)
     elif state == "working":
-        d.update(face="focus", gaze=(0, 1, 1, 0, -1, -1)[(t // 5) % 6], laptop=(t // 2) % 2,
+        d.update(face="focus", gaze=(0, 1, 1, 0, -1, -1)[(t // 4) % 6], laptop=(t // 2) % 2,
                  tail=(0, 1, 0, -1)[(t // 3) % 4], arm=3, dy=0)
         for i in range(3):
             if (t // 4) % 4 > i:
@@ -115,8 +118,8 @@ def grid(key):
                 put(base + 1, y0 + jj - up, accent)
 
     for name, ox, oy, color in ov:
-        rows = sprites.GLYPHS[name]
-        multi = sprites.MULTI.get(name)
+        rows = glyphs.GLYPHS[name]
+        multi = glyphs.MULTI.get(name)
         for j, r in enumerate(rows):
             for i, ch in enumerate(r):
                 if ch == ".":
