@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(0, 1, 0, 0),
-    prodvers=(0, 1, 0, 0),
+    filevers=(0, 1, 1, 0),
+    prodvers=(0, 1, 1, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -16,12 +16,12 @@ VSVersionInfo(
         '040904B0',
         [StringStruct('CompanyName', ''),
          StringStruct('FileDescription', 'Claude Pet - animated taskbar pet for Claude Code'),
-         StringStruct('FileVersion', '0.1.0'),
+         StringStruct('FileVersion', '0.1.1'),
          StringStruct('InternalName', 'claude-pet'),
          StringStruct('LegalCopyright', 'MIT License'),
          StringStruct('OriginalFilename', 'ClaudePet.exe'),
          StringStruct('ProductName', 'Claude Pet'),
-         StringStruct('ProductVersion', '0.1.0')])
+         StringStruct('ProductVersion', '0.1.1')])
     ]),
     VarFileInfo([VarStruct('Translation', [1033, 1200])])
   ]

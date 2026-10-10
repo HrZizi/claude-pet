@@ -38,5 +38,5 @@ coll = COLLECT(gui, cli, a.binaries, a.datas, name="ClaudePet", upx=False)
 if IS_MAC:
     app = BUNDLE(coll, name="ClaudePet.app", icon=icon, bundle_identifier="io.github.claude-pet",
                  info_plist={"LSUIElement": True,          # no Dock icon / menu bar: it is a floating pet
-                             "CFBundleShortVersionString": "0.1.0",
+                             "CFBundleShortVersionString": "0.1.1",
                              "NSHighResolutionCapable": True})

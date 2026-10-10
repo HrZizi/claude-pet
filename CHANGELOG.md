@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here. The format follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [0.1.1] - 2026-10-10
+
+### Fixed
+- A menu *Preview animation* choice now expires after 20 seconds. Previously it overrode what Claude was really doing indefinitely
+  and invisibly (e.g. leaving "Asleep" selected made the pet look broken while sessions were running).
+
 ## [0.1.0] - 2026-10-10
 
 ### Added
