@@ -1,10 +1,35 @@
-﻿__pycache__/
-*.pyc
-# runtime / personal files
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_tmp/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build output
+build/
+dist/
+*.spec.bak
+
+# Runtime / personal files (these now live in the per-user data folder, but never commit them if they appear)
+config.json
 state.json
 usage.json
 statusline_last.json
-config.json
 *.tmp*
-preview.png
+settings.json.bak-*
+
+# Scratch
+/_*.png
+/_*.py
 shot*.png
+preview.png
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

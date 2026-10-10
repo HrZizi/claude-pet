@@ -9,8 +9,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-DIR = Path(__file__).resolve().parent
-USAGE_FILE = DIR / "usage.json"
+from .. import paths
+
 PROJECTS = Path.home() / ".claude" / "projects"
 WEEK = 7 * 86400
 
@@ -29,7 +29,7 @@ def _epoch(v):
 def read_limits():
     """-> {'5h': (pct, resets_at|None), '7d': (...)} or None when no fresh data exists."""
     try:
-        d = json.loads(USAGE_FILE.read_text(encoding="utf-8"))
+        d = json.loads(paths.usage_file().read_text(encoding="utf-8-sig"))
         rl = d["rate_limits"]
     except Exception:
         return None

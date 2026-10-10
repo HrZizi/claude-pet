@@ -18,7 +18,7 @@ import urllib.error
 import urllib.request
 from pathlib import Path
 
-import usage
+from . import usage
 
 class LimitsError(Exception):
     """Short, token-free message that is safe to show in the UI."""

@@ -1,6 +1,6 @@
 """Claude taskbar pet: a small animated pet that shows whether Claude is working, done, or needs you.
 
-Run with:  pythonw pet.py (start.bat) on Windows, python3 pet.py (start.sh) on macOS.
+Run with:  claude-pet   (or ClaudePet.exe / python -m claude_pet).
 Right-click (macOS: two-finger / Ctrl-click) for options. Click the pet to pet it; drag it anywhere and it
 snaps to the taskbar / Dock edge when you drop it near it.
 """
@@ -13,17 +13,14 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 
-import accounts
-import limits_api
-import platform_support as ps
-import render
-import sprites
-import usage
-from popup_menu import Menu, rounded
+from . import demo as demo_data
+from . import paths
+from .art import render, sprites
+from .claude import accounts, integration, limits_api, usage
+from .ui import platform_support as ps
+from .ui.popup_menu import Menu, rounded
 
-DIR = Path(__file__).resolve().parent
-CFG = DIR / "config.json"
-STATE = DIR / "state.json"
+LOCK_PORT = 47653       # single-instance lock (demo mode uses the next port so it can run beside the real pet)
 TICK_MS = 125
 SNAP = 40
 PANEL_W = 158
@@ -47,10 +44,13 @@ THEMES = {
 
 # ---------------------------------------------------------------- app
 class PetApp:
-    def __init__(self):
+    def __init__(self, demo=False):
+        self.demo = demo
+        self.cfg_path = paths.config_file()
+        self.state_path = paths.state_file()
         self.cfg = dict(DEFAULTS)
         try:
-            self.cfg.update(json.loads(CFG.read_text(encoding="utf-8-sig")))
+            self.cfg.update(json.loads(self.cfg_path.read_text(encoding="utf-8-sig")))
         except Exception:
             pass
         if self.cfg["pet"] not in sprites.PETS:
@@ -99,8 +99,10 @@ class PetApp:
             self.canvas.bind(ev, self.on_menu)
 
         self.relayout(initial=True)
-        threading.Thread(target=self._token_loop, daemon=True).start()
-        threading.Thread(target=self._limits_loop, daemon=True).start()
+        if not self.demo:
+            threading.Thread(target=self._token_loop, daemon=True).start()
+            threading.Thread(target=self._limits_loop, daemon=True).start()
+            self.root.after(2500, self._offer_connect)
         self.tick()
         self.root.after(3000, self.housekeeping)
         self.root.after(20000, self._refresh_timer)
@@ -108,7 +110,7 @@ class PetApp:
     # ---- config
     def save(self):
         try:
-            CFG.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
+            self.cfg_path.write_text(json.dumps(self.cfg, indent=2), encoding="utf-8")
         except OSError:
             pass
 
@@ -201,14 +203,14 @@ class PetApp:
     # ---- state
     def read_state(self):
         try:
-            mt = STATE.stat().st_mtime_ns
+            mt = self.state_path.stat().st_mtime_ns
         except OSError:
             return
         if mt == self._state_mtime:
             return
         self._state_mtime = mt
         try:
-            self.sessions = json.loads(STATE.read_text(encoding="utf-8-sig")).get("sessions", {})
+            self.sessions = json.loads(self.state_path.read_text(encoding="utf-8-sig")).get("sessions", {})
         except Exception:
             pass
 
@@ -340,7 +342,10 @@ class PetApp:
                 lim = self.api.get(a["id"], {}).get("limits")
             self.limits = lim
             self.tokens = self.tokens_for(a)
-            self.theme = THEMES["light" if ps.light_theme() else "dark"]
+            if self.demo:
+                self.limits, self.tokens = demo_data.limits(), demo_data.TOKENS
+            if not self.demo:
+                self.theme = THEMES["light" if ps.light_theme() else "dark"]
             if self.panel_h() != was:
                 self.relayout()
         state = self.forced or self.summarize()
@@ -383,6 +388,10 @@ class PetApp:
 
     # ---- accounts
     def refresh_accounts(self):
+        if self.demo:
+            self.accts, self.owner, self.last = demo_data.accounts(), {}, {}
+            self.api = {a["id"]: {"plan": a.get("plan", ""), "status": "ok"} for a in self.accts}
+            return
         owner, last = accounts.scan_desktop()
         self.accts = accounts.detect(self.cfg["logins"], self.cfg["names"], last)
         self.owner, self.last = owner, last
@@ -534,6 +543,29 @@ class PetApp:
         self.save()
         self.relayout()
 
+    def toggle_hooks(self):
+        try:
+            if integration.is_installed():
+                integration.uninstall()
+            else:
+                integration.install()
+                messagebox.showinfo("Connected", "Hooks added to ~/.claude/settings.json (a backup was saved).\n"
+                                    "Restart open Claude sessions so they pick them up.")
+        except Exception as e:
+            messagebox.showerror("Could not update Claude Code settings", str(e))
+
+    def _offer_connect(self):
+        """First run: offer to add the hooks (the pet cannot see Claude without them)."""
+        if self.cfg.get("asked_connect") or integration.is_installed():
+            return
+        self.cfg["asked_connect"] = True
+        self.save()
+        if messagebox.askyesno("Connect to Claude Code?", "claude-pet needs a few Claude Code hooks to know when "
+                               "Claude is working, done or waiting for you.\n\nAdd them to "
+                               "~/.claude/settings.json now? (A backup is saved; right-click -> Connect to Claude "
+                               "Code removes them again.)"):
+            self.toggle_hooks()
+
     def toggle_startup(self):
         ps.set_startup(not ps.startup_enabled())
 
@@ -581,6 +613,8 @@ class PetApp:
                                                     lambda v=v: self.set_forced(v)) for lb, v in STATE_LABELS]))
         items.append(("item", "Snap to taskbar / Dock", self.reset_position))
         items.append(("check", "Start at login", ps.startup_enabled(), self.toggle_startup))
+        if not self.demo:
+            items.append(("check", "Connect to Claude Code (hooks)", integration.is_installed(), self.toggle_hooks))
         items.append(("sep",))
         items.append(("item", "Quit", self.root.destroy))
         return items
@@ -593,16 +627,15 @@ class PetApp:
                          on_close=lambda: setattr(self, "menu_open", False))
         self.menu.open(self.menu_items(), e.x_root, e.y_root)
 
-def main():
+def run(demo=False, state=None):
+    """Start the pet. demo: canned accounts / usage, nothing read from Claude. state: force an animation."""
     ps.init_process()
     lock = socket.socket()
     try:
-        lock.bind(("127.0.0.1", 47653))        # single instance
+        lock.bind(("127.0.0.1", LOCK_PORT + (1 if demo else 0)))        # single instance
     except OSError:
-        return
-    app = PetApp()
+        return 0
+    app = PetApp(demo=demo)
+    app.forced = state
     app.root.mainloop()
-
-
-if __name__ == "__main__":
-    main()
+    return 0

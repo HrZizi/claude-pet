@@ -3,7 +3,7 @@
 States: sleep (idle), idle (awake, just woke), working, attention (distraught),
         celebrate (just finished), wants (wants a pet), petted.
 """
-import sprites
+from . import sprites
 
 KEY = "#010203"          # colour treated as transparent by the window
 GW = 28                  # grid width: 24px sprite + room to shake / glyphs

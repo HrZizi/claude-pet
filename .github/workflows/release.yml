@@ -1,0 +1,39 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the Windows installer + portable zip and the macOS app and attach them to a release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev]"
+      - run: choco install innosetup -y --no-progress
+      - run: python scripts/build.py --installer
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/ClaudePet-Setup-*.exe
+            dist/ClaudePet-*-windows.zip
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: python -m pip install -e ".[dev,mac]"
+      - run: python scripts/build.py
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/ClaudePet-*-macos.zip

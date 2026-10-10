@@ -1,25 +1,28 @@
-"""Claude Code hook: records what this session is doing in state.json (read by pet.py).
+"""Claude Code hook: records what this session is doing in state.json (read by the pet).
 
-usage: python hook.py working|attention|done|end
+usage: claude-pet-cli hook working|attention|done|end        (event JSON arrives on stdin)
+
+Kept deliberately tiny and dependency-free: it runs on every prompt and tool call.
 """
 import json
 import os
 import sys
 import time
 
-STATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state.json")
+from .. import paths
 
 
-def main():
-    event = sys.argv[1] if len(sys.argv) > 1 else "working"
+def main(argv):
+    event = argv[0] if argv else "working"
     try:
         data = json.load(sys.stdin)
     except Exception:
         data = {}
     sid = str(data.get("session_id") or "unknown")
 
+    state_path = str(paths.state_file())
     try:
-        with open(STATE, encoding="utf-8") as f:
+        with open(state_path, encoding="utf-8") as f:
             state = json.load(f)
     except Exception:
         state = {}
@@ -33,17 +36,11 @@ def main():
     for k in [k for k, v in sessions.items() if now - v.get("ts", 0) > 86400]:
         del sessions[k]
 
-    tmp = STATE + ".tmp%d" % os.getpid()
+    tmp = state_path + ".tmp%d" % os.getpid()
     try:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump(state, f)
-        os.replace(tmp, STATE)
+        os.replace(tmp, state_path)
     except OSError:
         pass
-
-
-if __name__ == "__main__":
-    try:
-        main()
-    except Exception:
-        pass
+    return 0

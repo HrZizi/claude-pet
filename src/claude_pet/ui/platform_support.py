@@ -10,7 +10,6 @@ from pathlib import Path
 IS_WIN = sys.platform.startswith("win")
 IS_MAC = sys.platform == "darwin"
 KEY = "#010203"                      # colour keyed out as transparent on Windows
-DIR = Path(__file__).resolve().parent
 
 # right-click: Button-3 on Windows/Linux; Button-2 or Ctrl-click on macOS
 RIGHT_CLICK = ("<Button-2>", "<Control-Button-1>") if IS_MAC else ("<Button-3>",)
@@ -68,6 +67,41 @@ def virtual_screen(root):
         x, y, w, h = gm(76), gm(77), gm(78), gm(79)
         return x, y, x + w, y + h
     return _screen(root)
+
+
+def monitor_work_area(root, x, y):
+    """(left, top, right, bottom) of the usable area of the single monitor containing point (x, y)."""
+    try:
+        if IS_WIN:
+            import ctypes
+            from ctypes import wintypes
+
+            class MONITORINFO(ctypes.Structure):
+                _fields_ = [("cbSize", wintypes.DWORD), ("rcMonitor", wintypes.RECT),
+                            ("rcWork", wintypes.RECT), ("dwFlags", wintypes.DWORD)]
+            u = ctypes.windll.user32
+            u.MonitorFromPoint.argtypes = [wintypes.POINT, wintypes.DWORD]
+            u.MonitorFromPoint.restype = wintypes.HANDLE
+            u.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+            hmon = u.MonitorFromPoint(wintypes.POINT(int(x), int(y)), 2)      # MONITOR_DEFAULTTONEAREST
+            mi = MONITORINFO()
+            mi.cbSize = ctypes.sizeof(MONITORINFO)
+            if u.GetMonitorInfoW(hmon, ctypes.byref(mi)):
+                r = mi.rcWork
+                return r.left, r.top, r.right, r.bottom
+        elif IS_MAC:
+            from AppKit import NSScreen
+            screens = NSScreen.screens()
+            h0 = screens[0].frame().size.height
+            for scr in screens:
+                v = scr.visibleFrame()
+                l, t = v.origin.x, h0 - (v.origin.y + v.size.height)
+                r, b = l + v.size.width, t + v.size.height
+                if l <= x < r and t <= y < b + 200:
+                    return int(l), int(t), int(r), int(b)
+    except Exception:
+        pass
+    return work_area(root)
 
 
 def work_area(root):
@@ -141,8 +175,18 @@ def startup_enabled():
     return (LAUNCH_AGENT if IS_MAC else STARTUP_VBS).exists()
 
 
+def _launch_argv():
+    """argv that starts the pet again (used for start-at-login)."""
+    if getattr(sys, "frozen", False):
+        return [sys.executable]
+    exe = Path(sys.executable)
+    if IS_WIN and exe.with_name("pythonw.exe").exists():
+        exe = exe.with_name("pythonw.exe")                    # no console window
+    return [str(exe), "-m", "claude_pet"]
+
+
 def set_startup(enable):
-    script = DIR / "pet.py"
+    argv = _launch_argv()
     try:
         if IS_MAC:
             if not enable:
@@ -150,16 +194,14 @@ def set_startup(enable):
                 return
             LAUNCH_AGENT.parent.mkdir(parents=True, exist_ok=True)
             with open(LAUNCH_AGENT, "wb") as f:
-                plistlib.dump({"Label": "com.claude-pet", "ProgramArguments": [sys.executable, str(script)],
+                plistlib.dump({"Label": "com.claude-pet", "ProgramArguments": argv,
                                "RunAtLoad": True, "KeepAlive": False}, f)
         elif IS_WIN:
             if not enable:
                 STARTUP_VBS.unlink(missing_ok=True)
                 return
-            pyw = Path(sys.executable).with_name("pythonw.exe")
-            exe = pyw if pyw.exists() else Path(sys.executable)
-            STARTUP_VBS.write_text('CreateObject("WScript.Shell").Run """%s"" ""%s""", 0\n' % (exe, script),
-                                   encoding="utf-8")
+            cmdline = " ".join('""%s""' % a for a in argv)
+            STARTUP_VBS.write_text('CreateObject("WScript.Shell").Run "%s", 0\n' % cmdline, encoding="utf-8")
     except OSError:
         pass
 

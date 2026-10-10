@@ -7,7 +7,7 @@ Items:  ("item", text, command)            ("check", text, checked, command)
 import tkinter as tk
 from tkinter import font as tkfont
 
-import platform_support as ps
+from . import platform_support as ps
 
 PAD, ROW_H, SEP_H, LABEL_H, IND_W = 7, 27, 11, 22, 24
 ACCENT = "#D97757"
@@ -17,6 +17,34 @@ def rounded(c, x0, y0, x1, y1, r, **kw):
     pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,
            x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
     return c.create_polygon(pts, smooth=True, splinesteps=8, **kw)
+
+
+def _clamp(v, lo, hi):
+    return max(lo, min(v, hi)) if hi >= lo else lo
+
+
+def place_root(bounds, w, h, cursor, avoid=None, gap=6, margin=4):
+    """Top-left for the first menu panel: inside `bounds` (one monitor), never on top of `avoid` (the pet)."""
+    bx0, by0, bx1, by1 = bounds
+    x = _clamp(cursor[0], bx0 + margin, bx1 - w - margin)
+    y = cursor[1]
+    if avoid:
+        ax0, ay0, ax1, ay1 = avoid
+        if ay0 - by0 >= h + gap:
+            y = ay0 - h - gap                  # above the pet
+        elif by1 - ay1 >= h + gap:
+            y = ay1 + gap                      # or below it
+    return x, _clamp(y, by0 + margin, by1 - h - margin)
+
+
+def place_sub(bounds, parent_rect, row_y, w, h, margin=4):
+    """Top-left for a submenu: beside its parent row, flipped to the left side if it would leave the monitor."""
+    bx0, by0, bx1, by1 = bounds
+    px0, py0, px1, py1 = parent_rect
+    x = px1 - 4
+    if x + w > bx1 - margin:
+        x = px0 - w + 4
+    return _clamp(x, bx0 + margin, bx1 - w - margin), _clamp(py0 + row_y - PAD, by0 + margin, by1 - h - margin)
 
 
 class _Panel:
@@ -164,23 +192,15 @@ class Menu:
 
     def show(self, items, parent, row_y, cursor=None):
         p = _Panel(self, items, len(self.panels) if parent is None else parent.depth + 1)
-        sx0, sy0, sx1, sy1 = ps.virtual_screen(self.root)
         if parent is None:
-            x = min(max(cursor[0], sx0 + 4), sx1 - p.w - 4)
-            y = cursor[1]
-            if self.avoid:                      # never sit on top of the pet: go above it (or below if no room)
+            if self.avoid:                      # stay on the monitor the pet is on, never straddle two screens
                 ax0, ay0, ax1, ay1 = self.avoid
-                if ay0 - sy0 >= p.h + 6:
-                    y = ay0 - p.h - 6
-                elif sy1 - ay1 >= p.h + 6:
-                    y = ay1 + 6
-            y = min(max(y, sy0 + 4), sy1 - p.h - 4)
+                self.bounds = ps.monitor_work_area(self.root, (ax0 + ax1) // 2, (ay0 + ay1) // 2)
+            else:
+                self.bounds = ps.monitor_work_area(self.root, *cursor)
+            x, y = place_root(self.bounds, p.w, p.h, cursor, self.avoid)
         else:
-            px0, py0, px1, py1 = parent.rect()
-            x = px1 - 4
-            if x + p.w > sx1 - 4:
-                x = px0 - p.w + 4
-            y = min(max(py0 + row_y - PAD, sy0 + 4), sy1 - p.h - 4)
+            x, y = place_sub(self.bounds, parent.rect(), row_y, p.w, p.h)
         p.place(int(x), int(y))
         self.panels.append(p)
         if parent is not None:

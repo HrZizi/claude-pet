@@ -1,2 +1,10 @@
+* text=auto
 *.sh text eol=lf
 *.py text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.iss text eol=crlf
+*.bat text eol=crlf
+*.ico binary
+*.png binary
+*.gif binary
