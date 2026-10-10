@@ -5,6 +5,7 @@ python install.py --uninstall  remove everything this script added
 A backup is saved next to settings.json before any change.
 """
 import json
+import shlex
 import shutil
 import sys
 import time
@@ -25,12 +26,19 @@ HOOKS = [
 
 
 def cmd(script, *args):
-    # forward slashes + no quotes keeps this valid in bash, cmd and PowerShell
-    return " ".join(["python", (DIR / script).as_posix(), *args])
+    path = (DIR / script).as_posix()
+    if sys.platform.startswith("win"):
+        # forward slashes + no quotes keeps this valid in bash, cmd and PowerShell
+        py = shutil.which("python") and "python" or sys.executable.replace("\\", "/")
+    else:
+        py = shlex.quote(sys.executable)
+        path = shlex.quote(path)
+    return " ".join([py, path, *args])
 
 
 def is_ours(h):
-    return MARK in (h.get("command", "").replace("\\", "/"))
+    c = h.get("command", "").replace("\\", "/")
+    return DIR.as_posix() in c or MARK in c
 
 
 def strip(settings):

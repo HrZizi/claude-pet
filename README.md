@@ -17,35 +17,32 @@ animation, snap to taskbar, start with Windows. Click the usage card to switch b
 
 ## Setup
     python install.py       # adds hooks (+ statusLine if you have none) to ~/.claude/settings.json
-    start.bat               # runs the pet (or right-click -> Start with Windows)
+    start.bat               # runs the pet (macOS/Linux: ./start.sh) (or right-click -> Start with Windows)
     python install.py --uninstall
 
 Restart open Claude sessions after installing so they load the hooks.
 
-## Usage panel
-- Real 5h / 7d account limits (%) appear once Claude Code has passed rate-limit data to the
-  statusLine script (`statusline.py`). Only works if the statusLine runs in your Claude setup.
-- Until then it shows tokens used locally (from ~/.claude/projects). Set `token_budget_5h` /
-  `token_budget_7d` in config.json to turn that into a percentage.
-- Already have your own statusLine? Pipe its stdin through `statusline.py` first, or add
-  the same `rate_limits` write to your script.
+## Usage card
+Click the card (or right-click -> Usage view) to switch between **limits**, **tokens** or **rotate**.
+- **Real limits (5h / weekly %)**: right-click -> *Fetch real limits from Anthropic*. Opt-in. Works for
+  Claude Desktop and CLI users alike: it reads the login token Claude Code already stored
+  (`~/.claude/.credentials.json`, macOS Keychain item "Claude Code-credentials") and makes one read-only
+  request every 3 minutes to `api.anthropic.com/api/oauth/usage`, the data behind `/usage`. The token is never
+  stored, logged or refreshed by the pet. It's an undocumented endpoint and may change. Check it with
+  `python limits_api.py`.
+- **statusLine (CLI only)**: if your CLI statusLine passes `rate_limits`, `statusline.py` saves them and
+  they are used first. The Desktop app does not run the statusLine.
+- **Tokens**: tokens used locally (from `~/.claude/projects`). Set `token_budget_5h` / `token_budget_7d`
+  in config.json to show them as a percentage.
 
 ## Files
-pet.py (app) | sprites.py (pixel art, edit/add pets here) | render.py (animation) |
+pet.py (app) | platform_support.py (OS-specific bits) | limits_api.py (real limits) | sprites.py (pixel art, edit/add pets here) | render.py (animation) |
 hook.py (writes state.json) | statusline.py + usage.py (usage) | install.py
 
 ## Platform support
-Windows 10/11 only today. macOS looks feasible (Tk + hooks are cross-platform); the Windows-specific
-parts that would need a mac counterpart:
-
-| Area | Windows (now) | macOS equivalent |
-|---|---|---|
-| see-through window | `-transparentcolor` | `-transparent True` + `bg='systemTransparent'` |
-| taskbar/dock edge | `SystemParametersInfo(SPI_GETWORKAREA)` | `NSScreen.visibleFrame` (pyobjc) |
-| light/dark theme | registry | `defaults read -g AppleInterfaceStyle` |
-| start at login | .vbs in Startup | LaunchAgent plist |
-| right-click | Button-3 | Button-2 / Ctrl-click |
-| hook command | `python ...` | `python3 ...` |
-| fonts | Segoe UI | system font |
-
-Not yet implemented or tested (no Mac available to test on).
+- **Windows 10/11**: tested.
+- **macOS**: implemented in `platform_support.py` but **untested** (written without a Mac). Requires Python 3
+  with Tk 8.6 (python.org installer, or `brew install python-tk`). For the exact Dock position install
+  `pip install pyobjc-framework-Cocoa`; without it the Dock size is estimated from its preferences.
+  Use `./start.sh`, then `python3 install.py`. Right-click = two-finger click or Ctrl-click. If the pet
+  appears with a black/opaque background or can't be clicked, that's the first thing to report.

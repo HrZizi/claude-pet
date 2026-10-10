@@ -1,19 +1,19 @@
 """Claude taskbar pet: a small animated pet that shows whether Claude is working, done, or needs you.
 
-Run with:  pythonw pet.py     (or double-click start.bat)
-Right-click the pet for options. Drag it anywhere; it snaps to the taskbar edge when you drop it near it.
+Run with:  pythonw pet.py (start.bat) on Windows, python3 pet.py (start.sh) on macOS.
+Right-click (macOS: two-finger / Ctrl-click) for options. Click the pet to pet it; drag it anywhere and it
+snaps to the taskbar / Dock edge when you drop it near it.
 """
-import ctypes
 import json
-import os
 import socket
 import sys
 import threading
 import time
 import tkinter as tk
-from ctypes import wintypes
 from pathlib import Path
 
+import limits_api
+import platform_support as ps
 import render
 import sprites
 import usage
@@ -25,9 +25,10 @@ TICK_MS = 125
 SNAP = 40
 PANEL_W = 158
 PET_TIME, WANT_TIME, AWAKE_TIME = 3.5, 120, 20
-STARTUP_VBS = Path(os.environ.get("APPDATA", "")) / "Microsoft/Windows/Start Menu/Programs/Startup/claude-pet.vbs"
+LIMITS_EVERY = 180      # seconds between usage-limit requests (when enabled)
 
 DEFAULTS = {"pet": "claude", "scale": 3, "show_usage": True, "usage_view": "rotate", "usage_rotate_s": 8,
+            "limits_api": False,
             "x": None, "dock": "bottom"}
 VIEWS = [("Rotate (limits / tokens)", "rotate"), ("Limits only", "limits"), ("Tokens only", "tokens")]
 STATE_LABELS = [("Auto (follow Claude)", None), ("Asleep (idle)", "sleep"), ("Awake", "idle"),
@@ -39,47 +40,10 @@ THEMES = {
 }
 
 
-def light_theme():
-    try:
-        import winreg
-        k = winreg.OpenKey(winreg.HKEY_CURRENT_USER,
-                           r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize")
-        return winreg.QueryValueEx(k, "SystemUsesLightTheme")[0] == 1
-    except Exception:
-        return False
-
-
 def rounded(c, x0, y0, x1, y1, r, **kw):
     pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,
            x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
     return c.create_polygon(pts, smooth=True, splinesteps=8, **kw)
-
-
-# ---------------------------------------------------------------- Windows helpers
-def _dpi_aware():
-    try:
-        ctypes.windll.shcore.SetProcessDpiAwareness(2)
-    except Exception:
-        try:
-            ctypes.windll.user32.SetProcessDPIAware()
-        except Exception:
-            pass
-
-
-def work_area():
-    r = wintypes.RECT()
-    ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(r), 0)   # SPI_GETWORKAREA
-    return r.left, r.top, r.right, r.bottom
-
-
-def virtual_screen():
-    gm = ctypes.windll.user32.GetSystemMetrics
-    x, y, w, h = gm(76), gm(77), gm(78), gm(79)
-    return x, y, x + w, y + h
-
-
-def hexcolor(c):
-    return c
 
 
 # ---------------------------------------------------------------- app
@@ -87,7 +51,7 @@ class PetApp:
     def __init__(self):
         self.cfg = dict(DEFAULTS)
         try:
-            self.cfg.update(json.loads(CFG.read_text(encoding="utf-8")))
+            self.cfg.update(json.loads(CFG.read_text(encoding="utf-8-sig")))
         except Exception:
             pass
         if self.cfg["pet"] not in sprites.PETS:
@@ -95,11 +59,8 @@ class PetApp:
 
         self.root = tk.Tk()
         self.root.title("claude-pet")
-        self.root.overrideredirect(True)
-        self.root.attributes("-topmost", True)
-        self.root.attributes("-transparentcolor", render.KEY)
-        self.root.configure(bg=render.KEY)
-        self.canvas = tk.Canvas(self.root, bg=render.KEY, highlightthickness=0, bd=0)
+        bg = ps.setup_window(self.root)
+        self.canvas = tk.Canvas(self.root, bg=bg, highlightthickness=0, bd=0)
         self.canvas.pack(fill="both", expand=True)
 
         self.images = {}
@@ -107,10 +68,12 @@ class PetApp:
         self._state_mtime = None
         self.forced = None
         self.petted_at = 0.0
-        self.theme = THEMES["light" if light_theme() else "dark"]
+        self.theme = THEMES["light" if ps.light_theme() else "dark"]
         self.tick_n = 0
         self.started = time.time()
         self.limits = None
+        self.api_limits = None
+        self.api_status = "off" if not self.cfg["limits_api"] else "starting..."
         self.tokens = {}
         self.local = usage.LocalTokens()
         self.x = self.y = 0
@@ -120,10 +83,12 @@ class PetApp:
         self.canvas.bind("<ButtonPress-1>", self.on_press)
         self.canvas.bind("<B1-Motion>", self.on_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_release)
-        self.canvas.bind("<Button-3>", self.on_menu)
+        for ev in ps.RIGHT_CLICK:
+            self.canvas.bind(ev, self.on_menu)
 
         self.relayout(initial=True)
         threading.Thread(target=self._token_loop, daemon=True).start()
+        threading.Thread(target=self._limits_loop, daemon=True).start()
         self.tick()
         self.root.after(3000, self.housekeeping)
 
@@ -148,7 +113,7 @@ class PetApp:
         sw, sh = self.sprite_px()
         self.w = sw + (PANEL_W + 8 if self.cfg["show_usage"] else 0)
         self.h = max(sh, self.panel_h())
-        wa = work_area()
+        wa = ps.work_area(self.root)
         if initial:
             self.x = self.cfg["x"] if self.cfg["x"] is not None else wa[2] - self.w - 220
             self.y = wa[3] - self.h
@@ -159,12 +124,12 @@ class PetApp:
         self.apply_dock()
 
     def clamp(self):
-        vx0, vy0, vx1, vy1 = virtual_screen()
+        vx0, vy0, vx1, vy1 = ps.virtual_screen(self.root)
         self.x = max(vx0 - self.w + 20, min(self.x, vx1 - 20))
         self.y = max(vy0, min(self.y, vy1 - 20))
 
     def apply_dock(self):
-        wa = work_area()
+        wa = ps.work_area(self.root)
         d = self.cfg.get("dock")
         if d == "bottom":
             self.y = wa[3] - self.h
@@ -178,7 +143,7 @@ class PetApp:
         self.root.geometry("%dx%d+%d+%d" % (self.w, self.h, self.x, self.y))
 
     def snap(self):
-        wa = work_area()
+        wa = ps.work_area(self.root)
         dist = {"bottom": abs(self.y + self.h - wa[3]), "top": abs(self.y - wa[1]),
                 "left": abs(self.x - wa[0]), "right": abs(self.x + self.w - wa[2])}
         side = min(dist, key=dist.get)
@@ -188,7 +153,7 @@ class PetApp:
         self.save()
 
     def reset_position(self):
-        wa = work_area()
+        wa = ps.work_area(self.root)
         self.cfg["dock"] = "bottom"
         self.x = wa[2] - self.w - 220
         self.cfg["x"] = self.x
@@ -227,7 +192,7 @@ class PetApp:
             return
         self._state_mtime = mt
         try:
-            self.sessions = json.loads(STATE.read_text(encoding="utf-8")).get("sessions", {})
+            self.sessions = json.loads(STATE.read_text(encoding="utf-8-sig")).get("sessions", {})
         except Exception:
             pass
 
@@ -269,6 +234,11 @@ class PetApp:
             g = render.grid(key)
             small = tk.PhotoImage(width=len(g[0]), height=len(g))
             small.put(" ".join("{" + " ".join(row) + "}" for row in g), to=(0, 0))
+            if ps.needs_alpha_images():
+                for yy, row in enumerate(g):
+                    for xx, col in enumerate(row):
+                        if col == render.KEY:
+                            small.transparency_set(xx, yy, True)
             img = small.zoom(sc, sc)
             if len(self.images) > 600:
                 self.images.clear()
@@ -295,7 +265,7 @@ class PetApp:
         c.create_polygon(x0 + 1, ty - 5, x0 - 6, ty, x0 + 1, ty + 5, fill=th["bg"], outline="")
         c.create_line(x0 + 1, ty - 5, x0 - 6, ty, x0 + 1, ty + 5, fill=th["border"])
         c.create_line(x0 + 1, ty - 4, x0 + 1, ty + 4, fill=th["bg"])
-        font, bold = ("Segoe UI", 8), ("Segoe UI Semibold", 8)
+        font, bold = ps.ui_font(8), ps.ui_font(8, True)
         pad = 11
         if self.usage_view() == "limits":
             names = {"5h": "5-hour", "7d": "Weekly"}
@@ -305,7 +275,7 @@ class PetApp:
                 c.create_text(x0 + pad, y + 5, text=names[label], anchor="w", fill=th["text"], font=bold)
                 if reset:
                     c.create_text(x1 - pad - 32, y + 5, text="↻ " + usage.fmt_delta(reset - time.time()),
-                                  anchor="e", fill=th["muted"], font=("Segoe UI", 8))
+                                  anchor="e", fill=th["muted"], font=ps.ui_font(8))
                 c.create_text(x1 - pad, y + 5, text="%d%%" % round(pct), anchor="e", fill=th["text"], font=bold)
                 bx0, bx1, by = x0 + pad + 2, x1 - pad - 2, y + 18
                 c.create_line(bx0, by, bx1, by, width=5, capstyle="round", fill=th["track"])
@@ -332,9 +302,9 @@ class PetApp:
         self.read_state()
         if self.tick_n % 40 == 0:
             was = self.panel_h()
-            self.limits = usage.read_limits()
+            self.limits = usage.read_limits() or (self.api_limits if self.cfg["limits_api"] else None)
             self.tokens = self.local.totals()
-            self.theme = THEMES["light" if light_theme() else "dark"]
+            self.theme = THEMES["light" if ps.light_theme() else "dark"]
             if self.panel_h() != was:
                 self.relayout()
         state = self.forced or self.summarize()
@@ -360,6 +330,25 @@ class PetApp:
             except Exception:
                 pass
             time.sleep(60)
+
+    def _limits_loop(self):
+        while True:
+            if self.cfg["limits_api"]:
+                try:
+                    self.api_limits = limits_api.fetch()
+                    self.api_status = "ok"
+                except limits_api.LimitsError as e:
+                    self.api_status = str(e)
+                except Exception:
+                    self.api_status = "unexpected error"
+            time.sleep(LIMITS_EVERY if self.api_status in ("ok", "off") else 60)
+
+    def toggle_limits_api(self):
+        self.cfg["limits_api"] = not self.cfg["limits_api"]
+        self.api_status = "starting..." if self.cfg["limits_api"] else "off"
+        if not self.cfg["limits_api"]:
+            self.api_limits = None
+        self.save()
 
     # ---- menu
     def set_pet(self, key):
@@ -387,17 +376,7 @@ class PetApp:
         self.relayout()
 
     def toggle_startup(self):
-        try:
-            if STARTUP_VBS.exists():
-                STARTUP_VBS.unlink()
-            else:
-                pyw = Path(sys.executable).with_name("pythonw.exe")
-                exe = pyw if pyw.exists() else Path(sys.executable)
-                STARTUP_VBS.write_text(
-                    'CreateObject("WScript.Shell").Run """%s"" ""%s""", 0\n' % (exe, DIR / "pet.py"),
-                    encoding="utf-8")
-        except OSError:
-            pass
+        ps.set_startup(not ps.startup_enabled())
 
     def set_forced(self, v):
         self.forced = v
@@ -421,6 +400,11 @@ class PetApp:
         for label, v in VIEWS:
             vm.add_radiobutton(label=label, variable=vv, value=v, command=lambda v=v: self.set_view(v))
         m.add_cascade(label="Usage view (click the card to switch)", menu=vm)
+        lv = tk.BooleanVar(value=self.cfg["limits_api"])
+        m.add_checkbutton(label="Fetch real limits from Anthropic (uses your Claude login)", variable=lv,
+                          command=self.toggle_limits_api)
+        if self.cfg["limits_api"] and self.api_status != "ok":
+            m.add_command(label="   limits: " + self.api_status, state="disabled")
         if self.limits:
             for label, (pct, reset) in self.limits.items():
                 t = "%s limit: %d%% used" % (label, round(pct))
@@ -437,9 +421,9 @@ class PetApp:
         for label, v in STATE_LABELS:
             tests.add_radiobutton(label=label, variable=fv, value=v or "", command=lambda v=v: self.set_forced(v))
         m.add_cascade(label="Preview animation", menu=tests)
-        m.add_command(label="Snap to taskbar", command=self.reset_position)
-        sv2 = tk.BooleanVar(value=STARTUP_VBS.exists())
-        m.add_checkbutton(label="Start with Windows", variable=sv2, command=self.toggle_startup)
+        m.add_command(label="Snap to taskbar / Dock", command=self.reset_position)
+        sv2 = tk.BooleanVar(value=ps.startup_enabled())
+        m.add_checkbutton(label="Start at login", variable=sv2, command=self.toggle_startup)
         m.add_separator()
         m.add_command(label="Quit", command=self.root.destroy)
         try:
@@ -449,7 +433,7 @@ class PetApp:
 
 
 def main():
-    _dpi_aware()
+    ps.init_process()
     lock = socket.socket()
     try:
         lock.bind(("127.0.0.1", 47653))        # single instance
