@@ -33,3 +33,7 @@ preview.png
 .vscode/
 .DS_Store
 Thumbs.db
+
+# PyInstaller-generated specs at the repo root contain local paths (the real spec is packaging/claude-pet.spec)
+/ClaudePet-*.spec
+/*.spec

@@ -41,11 +41,14 @@ Claude Code is great at running for minutes while you do something else. **Claud
 
 ### Windows (recommended)
 
-1. Download **`ClaudePet-Setup-x.y.z.exe`** from the [latest release](https://github.com/OWNER/claude-pet/releases/latest) and run it. It installs per user, no admin rights needed.
-2. Keep **"Connect to Claude Code"** ticked. This adds a few hooks to `~/.claude/settings.json` (a backup is written first).
-3. Start *Claude Pet* from the Start menu. Restart any open Claude Code sessions so they pick up the hooks.
+Download from the [latest release](https://github.com/OWNER/claude-pet/releases/latest):
 
-Prefer no installer? Download `ClaudePet-x.y.z-windows.zip`, unzip anywhere, run `ClaudePet.exe`, then right-click the pet → **Connect to Claude Code**.
+| Download | What it is |
+|---|---|
+| **`ClaudePet-Setup-x.y.z.exe`** | Installer. Per user, no admin rights, Start menu shortcut, appears in *Settings → Apps* so you can uninstall it normally. |
+| **`ClaudePet-x.y.z-windows-portable.zip`** | Portable. Unzip anywhere, run `ClaudePet.exe`. Keeps its settings in a `data` folder next to it (nothing in AppData). |
+
+With the installer, keep **"Connect to Claude Code"** ticked: it adds a few hooks to `~/.claude/settings.json` (a backup is written first). With the portable zip, right-click the pet → **Connect to Claude Code (hooks)** once. Restart open Claude Code sessions afterwards so they load the hooks.
 
 > The executables are not code-signed, so Windows SmartScreen may warn on first run ("More info" → "Run anyway"). You can always build from source.
 
@@ -184,7 +187,7 @@ More in [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md).
 pip install -e ".[dev]"
 python -m pytest                          # unit tests (no display needed)
 python scripts/make_assets.py --screens   # regenerate icon, GIFs and screenshots (uses demo data)
-python scripts/build.py --installer       # PyInstaller build (+ Inno Setup installer on Windows)
+python scripts/build.py                   # -> dist/: installer + portable zip (Windows), .app zip (macOS)
 ```
 
 Project layout:
@@ -198,7 +201,7 @@ src/claude_pet/
   ui/               popup_menu.py (custom context menu), platform_support.py (Windows / macOS specifics)
 assets/             app icon (.ico / .icns / .png)
 docs/               architecture, accounts, macOS, troubleshooting + README images
-packaging/          PyInstaller spec, Inno Setup installer script
+packaging/          PyInstaller spec, Windows installer / uninstaller (setup_app.py)
 scripts/            build + asset generation
 tests/              pytest suite
 ```

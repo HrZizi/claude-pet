@@ -9,11 +9,22 @@ def is_frozen():
     return bool(getattr(sys, "frozen", False))
 
 
+def portable_root():
+    """<app folder>/data when running a portable build (a `portable.flag` file sits next to the exe), else None."""
+    if is_frozen():
+        d = Path(sys.executable).resolve().parent
+        if (d / "portable.flag").exists():
+            return d / "data"
+    return None
+
+
 def data_dir():
-    """Per-user data folder. Override with the CLAUDE_PET_HOME environment variable."""
+    """Per-user data folder. Override with CLAUDE_PET_HOME; portable builds keep everything beside the exe."""
     env = os.environ.get("CLAUDE_PET_HOME")
     if env:
         p = Path(env)
+    elif portable_root():
+        p = portable_root()
     elif sys.platform.startswith("win"):
         p = Path(os.environ.get("LOCALAPPDATA") or Path.home() / "AppData" / "Local") / "ClaudePet"
     elif sys.platform == "darwin":

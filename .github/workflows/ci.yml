@@ -36,4 +36,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ClaudePet-windows
-          path: dist/ClaudePet-*.zip
+          path: |
+            dist/ClaudePet-Setup-*.exe
+            dist/ClaudePet-*-windows-portable.zip
