@@ -282,6 +282,8 @@ class PetApp:
         info = self.api.get(self.acct()["name"], {})
         if view == "limits":
             head = self.acct()["name"] + (" \u00b7 " + info["plan"] if info.get("plan") else "")
+        elif self.cfg["limits_api"] and info.get("status") not in (None, "ok"):
+            head = self.acct()["name"] + " \u00b7 limits unavailable"      # reason: right-click menu
         else:
             head = "Tokens \u00b7 this PC"
         c.create_text(x0 + pad, y0 + 11, text=head, anchor="w", fill=th["muted"], font=ps.ui_font(7))

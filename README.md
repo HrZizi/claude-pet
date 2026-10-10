@@ -24,12 +24,17 @@ Restart open Claude sessions after installing so they load the hooks.
 
 ## Usage card
 Click the card (or right-click -> Usage view) to switch between **limits**, **tokens** or **rotate**.
-- **Real limits (5h / weekly %)**: right-click -> *Fetch real limits from Anthropic*. Opt-in. Works for
-  Claude Desktop and CLI users alike: it reads the login token Claude Code already stored
-  (`~/.claude/.credentials.json`, macOS Keychain item "Claude Code-credentials") and makes one read-only
-  request every 3 minutes to `api.anthropic.com/api/oauth/usage`, the data behind `/usage`. The token is never
-  stored, logged or refreshed by the pet. It's an undocumented endpoint and may change. Check it with
-  `python limits_api.py`.
+- **Real limits (5h / weekly %)**: right-click -> *Fetch real limits from Anthropic*. Opt-in. It reads the
+  login token that **Claude Code (the CLI)** stored in its config folder (`~/.claude/.credentials.json`; macOS
+  Keychain item "Claude Code-credentials") and makes one read-only request every 3 minutes to
+  `api.anthropic.com/api/oauth/usage`, the data behind `/usage`. The token is never stored, logged or refreshed
+  by the pet. Undocumented endpoint, may change. Check with `python limits_api.py [config_folder]`.
+  **The Claude Desktop app keeps its own separate login, which the pet cannot read.** So the limits are those of
+  whichever account the CLI is logged into; the card header always names the account and plan it is showing.
+- **Several accounts**: right-click -> *Account* -> *Add account...* (name + a config folder). Each account is a
+  Claude Code config folder logged in once with `CLAUDE_CONFIG_DIR=<folder> claude` then `/login` (the dialog
+  copies that command for you). Switch with the *Account* menu, or just click the card's header line.
+  Tokens are always "this PC": transcripts from every account on the machine are mixed together.
 - **statusLine (CLI only)**: if your CLI statusLine passes `rate_limits`, `statusline.py` saves them and
   they are used first. The Desktop app does not run the statusLine.
 - **Tokens**: tokens used locally (from `~/.claude/projects`). Set `token_budget_5h` / `token_budget_7d`
