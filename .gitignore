@@ -1,0 +1,10 @@
+﻿__pycache__/
+*.pyc
+# runtime / personal files
+state.json
+usage.json
+statusline_last.json
+config.json
+*.tmp*
+preview.png
+shot*.png
