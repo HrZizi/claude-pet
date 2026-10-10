@@ -30,8 +30,8 @@ mac = ["pyobjc-framework-Cocoa"]        # exact Dock position on macOS
 dev = ["pytest", "pillow", "pyinstaller"]
 
 [project.urls]
-Homepage = "https://github.com/OWNER/claude-pet"
-Issues = "https://github.com/OWNER/claude-pet/issues"
+Homepage = "https://github.com/HrZizi/claude-pet"
+Issues = "https://github.com/HrZizi/claude-pet/issues"
 
 [project.scripts]
 claude-pet-cli = "claude_pet.cli:main"

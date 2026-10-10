@@ -5,7 +5,7 @@ Thanks for helping! Bug reports, new pets, platform fixes (especially **macOS**)
 ## Setup
 
 ```bash
-git clone https://github.com/OWNER/claude-pet.git && cd claude-pet
+git clone https://github.com/HrZizi/claude-pet.git && cd claude-pet
 python -m venv .venv && . .venv/bin/activate     # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
 python -m pytest

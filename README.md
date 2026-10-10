@@ -6,7 +6,7 @@
 
 **A tiny pixel-art pet that lives on your taskbar and shows what Claude Code is doing, and how much usage you have left.**
 
-[![CI](https://github.com/OWNER/claude-pet/actions/workflows/ci.yml/badge.svg)](https://github.com/OWNER/claude-pet/actions/workflows/ci.yml)
+[![CI](https://github.com/HrZizi/claude-pet/actions/workflows/ci.yml/badge.svg)](https://github.com/HrZizi/claude-pet/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 ![Python](https://img.shields.io/badge/python-3.9%2B-3776AB?logo=python&logoColor=white)
 ![Platforms](https://img.shields.io/badge/platform-Windows%20%7C%20macOS-lightgrey)
@@ -41,7 +41,7 @@ Claude Code is great at running for minutes while you do something else. **Claud
 
 ### Windows (recommended)
 
-Download from the [latest release](https://github.com/OWNER/claude-pet/releases/latest):
+Download from the [latest release](https://github.com/HrZizi/claude-pet/releases/latest):
 
 | Download | What it is |
 |---|---|
@@ -65,7 +65,7 @@ claude-pet                        # run the pet
 ### From source (any platform with Python 3.9+ and Tk)
 
 ```bash
-git clone https://github.com/OWNER/claude-pet.git
+git clone https://github.com/HrZizi/claude-pet.git
 cd claude-pet
 python -m venv .venv && . .venv/bin/activate      # Windows: .venv\Scripts\activate
 pip install -e .

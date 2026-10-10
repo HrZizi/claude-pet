@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("tkinter")        # the menu module imports Tk; skip where Tk is not installed
+
 from claude_pet.ui.popup_menu import place_root, place_sub
 
 # two monitors side by side: 0..3440 and 3440..6000 (work areas exclude the taskbar)
