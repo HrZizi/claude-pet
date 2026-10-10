@@ -162,3 +162,13 @@ def set_startup(enable):
                                    encoding="utf-8")
     except OSError:
         pass
+
+
+# ---------------------------------------------------------------- mouse state (for closing popup menus)
+def mouse_buttons_down():
+    """True/False if any mouse button is held (Windows); None where unavailable (callers use focus loss)."""
+    if IS_WIN:
+        import ctypes
+        gk = ctypes.windll.user32.GetAsyncKeyState
+        return any(gk(vk) & 0x8000 for vk in (0x01, 0x02, 0x04))
+    return None

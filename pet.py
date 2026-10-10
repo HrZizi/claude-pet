@@ -13,11 +13,13 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
 
+import accounts
 import limits_api
 import platform_support as ps
 import render
 import sprites
 import usage
+from popup_menu import Menu, rounded
 
 DIR = Path(__file__).resolve().parent
 CFG = DIR / "config.json"
@@ -31,22 +33,16 @@ LIMITS_EVERY = 180      # seconds between usage-limit requests (when enabled)
 
 DEFAULTS = {"pet": "claude", "scale": 3, "show_usage": True, "usage_view": "rotate", "usage_rotate_s": 8,
             "limits_api": False,
-            "accounts": [{"name": "CLI login", "dir": None}], "account": "CLI login",
+            "account": "auto", "logins": [], "names": {},
             "x": None, "dock": "bottom"}
 VIEWS = [("Rotate (limits / tokens)", "rotate"), ("Limits only", "limits"), ("Tokens only", "tokens")]
 STATE_LABELS = [("Auto (follow Claude)", None), ("Asleep (idle)", "sleep"), ("Awake", "idle"),
                 ("Working", "working"), ("Just finished", "celebrate"), ("Wants a pet", "wants"),
                 ("Being petted", "petted"), ("Distraught (needs you)", "attention")]
 THEMES = {
-    "dark": dict(bg="#2B2B30", border="#46464D", text="#F2F2F4", muted="#A0A0AA", track="#47474F"),
-    "light": dict(bg="#F7F7F8", border="#D2D2D8", text="#1F1F24", muted="#6E6E78", track="#DEDEE3"),
+    "dark": dict(bg="#2B2B30", border="#46464D", text="#F2F2F4", muted="#A0A0AA", track="#47474F", hover="#3B3B42"),
+    "light": dict(bg="#F7F7F8", border="#D2D2D8", text="#1F1F24", muted="#6E6E78", track="#DEDEE3", hover="#E7E7EB"),
 }
-
-
-def rounded(c, x0, y0, x1, y1, r, **kw):
-    pts = [x0 + r, y0, x1 - r, y0, x1, y0, x1, y0 + r, x1, y1 - r, x1, y1, x1 - r, y1,
-           x0 + r, y1, x0, y1, x0, y1 - r, x0, y0 + r, x0, y0]
-    return c.create_polygon(pts, smooth=True, splinesteps=8, **kw)
 
 
 # ---------------------------------------------------------------- app
@@ -59,11 +55,14 @@ class PetApp:
             pass
         if self.cfg["pet"] not in sprites.PETS:
             self.cfg["pet"] = "claude"
-        accts = self.cfg.get("accounts")
-        if not (isinstance(accts, list) and accts and all(isinstance(a, dict) and a.get("name") for a in accts)):
-            self.cfg["accounts"] = [{"name": "CLI login", "dir": None}]
-        if self.cfg.get("account") not in [a["name"] for a in self.cfg["accounts"]]:
-            self.cfg["account"] = self.cfg["accounts"][0]["name"]
+        c = self.cfg
+        if not isinstance(c.get("logins"), list):
+            c["logins"] = []
+        c["logins"] = [m for m in c["logins"] if isinstance(m, dict) and m.get("dir")]
+        if not isinstance(c.get("names"), dict):
+            c["names"] = {}
+        if not isinstance(c.get("account"), str):
+            c["account"] = "auto"
 
         self.root = tk.Tk()
         self.root.title("claude-pet")
@@ -80,10 +79,15 @@ class PetApp:
         self.tick_n = 0
         self.started = time.time()
         self.limits = None
-        self.api = {}                 # account name -> {limits, status, plan, email}
+        self.api = {}                 # account id -> {limits, status, plan}
         self._wake = threading.Event()
+        self._last_active = None
         self.tokens = {}
-        self.local = usage.LocalTokens()
+        self.local = {None: usage.LocalTokens()}      # transcript root (None = ~/.claude) -> scanner
+        self.accts, self.owner, self.last = [], {}, {}
+        self.menu = None
+        self.menu_open = False
+        self.refresh_accounts()
         self.x = self.y = 0
         self.w = self.h = 1
         self._drag = None
@@ -99,6 +103,7 @@ class PetApp:
         threading.Thread(target=self._limits_loop, daemon=True).start()
         self.tick()
         self.root.after(3000, self.housekeeping)
+        self.root.after(20000, self._refresh_timer)
 
     # ---- config
     def save(self):
@@ -184,7 +189,7 @@ class PetApp:
             if moved < 4:                       # a click, not a drag
                 x0, y0, x1, y1 = getattr(self, "panel_rect", (-1, -1, -1, -1))
                 if self.cfg["show_usage"] and x0 <= e.x_root - self.x <= x1 and y0 <= e.y_root - self.y <= y1:
-                    if e.y_root - self.y < y0 + HDR + 2 and len(self.cfg["accounts"]) > 1:
+                    if e.y_root - self.y < y0 + HDR + 2 and len(self.accts) > 1:
                         self.next_account()     # click the card header: switch account
                     else:
                         self.cycle_view()       # click the card: switch limits / tokens / rotate
@@ -279,15 +284,14 @@ class PetApp:
         font, bold = ps.ui_font(8), ps.ui_font(8, True)
         pad = 11
         view = self.usage_view()
-        info = self.api.get(self.acct()["name"], {})
+        act = self.active()
+        info = self.api.get(act["id"], {})
         if view == "limits":
-            head = self.acct()["name"] + (" \u00b7 " + info["plan"] if info.get("plan") else "")
-        elif self.cfg["limits_api"] and info.get("status") not in (None, "ok"):
-            head = self.acct()["name"] + " \u00b7 limits unavailable"      # reason: right-click menu
+            head = act["name"] + (" \u00b7 " + info["plan"] if info.get("plan") else "")
         else:
-            head = "Tokens \u00b7 this PC"
+            head = act["name"] + " \u00b7 tokens"
         c.create_text(x0 + pad, y0 + 11, text=head, anchor="w", fill=th["muted"], font=ps.ui_font(7))
-        if len(self.cfg["accounts"]) > 1:
+        if len(self.accts) > 1:
             c.create_text(x1 - pad, y0 + 11, text="\u21c4", anchor="e", fill=th["muted"], font=ps.ui_font(8))
         c.create_line(x0 + pad, y0 + HDR, x1 - pad, y0 + HDR, fill=th["track"])
         y0 += HDR
@@ -327,12 +331,15 @@ class PetApp:
         self.read_state()
         if self.tick_n % 40 == 0:
             was = self.panel_h()
-            a = self.acct()
-            lim = usage.read_limits() if not a.get("dir") else None      # statusLine data is the CLI login's
+            a = self.active()
+            if a["id"] != self._last_active:                 # the active account changed (auto mode / switch)
+                self._last_active = a["id"]
+                self._wake.set()
+            lim = usage.read_limits() if a["source"] == "cli" else None      # statusLine data is the CLI login's
             if not lim and self.cfg["limits_api"]:
-                lim = self.api.get(a["name"], {}).get("limits")
+                lim = self.api.get(a["id"], {}).get("limits")
             self.limits = lim
-            self.tokens = self.local.totals()
+            self.tokens = self.tokens_for(a)
             self.theme = THEMES["light" if ps.light_theme() else "dark"]
             if self.panel_h() != was:
                 self.relayout()
@@ -348,112 +355,159 @@ class PetApp:
     def housekeeping(self):
         if not self._drag:
             self.apply_dock()
-        self.root.attributes("-topmost", True)
-        self.root.lift()
+        if not self.menu_open:                       # never raise the pet over an open menu
+            self.root.attributes("-topmost", True)
+            self.root.lift()
         self.root.after(3000, self.housekeeping)
 
     def _token_loop(self):
         while True:
-            try:
-                self.local.scan()
-            except Exception:
-                pass
+            for root in [None] + [a["dir"] and str(Path(a["dir"]) / "projects") for a in self.accts if a["dir"]]:
+                try:
+                    if root not in self.local:
+                        self.local[root] = usage.LocalTokens(root)
+                    self.local[root].scan()
+                except Exception:
+                    pass
             time.sleep(60)
 
-    def acct(self):
-        for a in self.cfg["accounts"]:
-            if a["name"] == self.cfg["account"]:
-                return a
-        return self.cfg["accounts"][0]
+    def tokens_for(self, a):
+        cli = self.accts[0]["id"]
+        total = dict(self.local[None].totals(self.owner, a["id"], cli))
+        if a["dir"]:                                   # a CLI login folder has its own transcripts
+            loc = self.local.get(str(Path(a["dir"]) / "projects"))
+            if loc:
+                for k, v in loc.totals().items():
+                    total[k] = total.get(k, 0) + v
+        return total
+
+    # ---- accounts
+    def refresh_accounts(self):
+        owner, last = accounts.scan_desktop()
+        self.accts = accounts.detect(self.cfg["logins"], self.cfg["names"], last)
+        self.owner, self.last = owner, last
+
+    def _refresh_timer(self):
+        try:
+            self.refresh_accounts()
+        finally:
+            self.root.after(20000, self._refresh_timer)
+
+    def selection(self):
+        """'auto' or the id of the account the user pinned (unknown / stale values count as auto)."""
+        sel = self.cfg["account"]
+        return sel if sel in [a["id"] for a in self.accts] else "auto"
+
+    def active_id(self):
+        ids = [a["id"] for a in self.accts]
+        if self.selection() != "auto":
+            return self.selection()
+        best_t, best = 0, None                           # auto: whoever was active most recently
+        for sid, st in self.sessions.items():
+            o = self.owner.get(sid, ids[0])              # not a Desktop session: a terminal CLI session
+            if o in ids and st.get("ts", 0) > best_t:
+                best_t, best = st.get("ts", 0), o
+        for acc, t in self.last.items():
+            if acc in ids and t > best_t:
+                best_t, best = t, acc
+        return best or ids[0]
+
+    def active(self):
+        aid = self.active_id()
+        return next(a for a in self.accts if a["id"] == aid)
+
+    def fetchable(self, a):
+        return (a["source"] == "cli" or bool(a["dir"])) and limits_api.has_login(a["dir"])
 
     def _limits_loop(self):
         while True:
             self._wake.clear()
-            a = self.acct()
-            d = a.get("dir")
-            info = self.api.setdefault(a["name"], {})
-            info["plan"] = limits_api.plan_label(d)
-            if self.cfg["limits_api"]:
-                try:
-                    info["limits"] = limits_api.fetch(d)
-                    info["status"] = "ok"
-                    if not info.get("email"):
-                        info["email"] = limits_api.email(d)
-                except limits_api.LimitsError as e:
-                    info["status"], info["limits"] = str(e), None
-                except Exception:
-                    info["status"], info["limits"] = "unexpected error", None
-            else:
-                info["status"] = "off"
-            self._wake.wait(LIMITS_EVERY if info["status"] in ("ok", "off") else 60)
+            try:
+                a = self.active()
+                info = self.api.setdefault(a["id"], {})
+                if self.fetchable(a):
+                    info["plan"] = limits_api.plan_label(a["dir"])
+                    if self.cfg["limits_api"]:
+                        try:
+                            info["limits"] = limits_api.fetch(a["dir"])
+                            info["status"] = "ok"
+                        except limits_api.LimitsError as e:
+                            info["status"], info["limits"] = str(e), None
+                    else:
+                        info["status"] = "off"
+                else:
+                    info["status"], info["limits"] = "no login", None
+                ok = info["status"] in ("ok", "off", "no login")
+            except Exception:
+                ok = False
+            self._wake.wait(LIMITS_EVERY if ok else 60)
 
     def toggle_limits_api(self):
         self.cfg["limits_api"] = not self.cfg["limits_api"]
         self.save()
         self._wake.set()
 
-    # ---- accounts
-    def switch_account(self, name):
-        self.cfg["account"] = name
+    def switch_account(self, sel):
+        self.cfg["account"] = sel
         self.save()
         self.limits = None
         self.tick_n -= self.tick_n % 40 + 1          # refresh the card on the next tick
         self._wake.set()
 
     def next_account(self):
-        names = [a["name"] for a in self.cfg["accounts"]]
-        self.switch_account(names[(names.index(self.cfg["account"]) + 1) % len(names)])
+        order = ["auto"] + [a["id"] for a in self.accts]
+        cur = self.selection()
+        self.switch_account(order[(order.index(cur) + 1) % len(order)])
 
     def add_account(self):
-        names = [a["name"] for a in self.cfg["accounts"]]
-        name = simpledialog.askstring("Add account", "Name for this account (e.g. Work):",
-                                      parent=self.root, initialvalue="Account %d" % (len(names) + 1))
-        name = (name or "").strip()
-        if not name:
-            return
-        if name in names:
-            messagebox.showinfo("Add account", "There is already an account called '%s'." % name)
-            return
         folder = filedialog.askdirectory(parent=self.root, mustexist=False, initialdir=str(Path.home()),
-                                         title="Pick (or create) the Claude config folder for '%s'" % name)
+                                         title="Pick (or create) a Claude config folder to sign a login into")
         if not folder:
             return
         folder = str(Path(folder))
-        self.cfg["accounts"].append({"name": name, "dir": folder})
-        self.switch_account(name)
+        if any(m["dir"] == folder for m in self.cfg["logins"]):
+            messagebox.showinfo("Add login", "That folder is already added.")
+            return
+        name = (simpledialog.askstring(
+            "Name this login", "Name (e.g. Work).\nIf the login turns out to belong to a detected Desktop "
+            "account it is linked to that account automatically.", parent=self.root,
+            initialvalue=Path(folder).name) or "").strip() or Path(folder).name
+        self.cfg["logins"].append({"name": name, "dir": folder})
+        self.save()
+        self.refresh_accounts()
         if not limits_api.has_login(folder):
-            if ps.IS_WIN:
-                cmd = '$env:CLAUDE_CONFIG_DIR="%s"; claude' % folder
-            else:
-                cmd = 'CLAUDE_CONFIG_DIR="%s" claude' % folder
+            cmd = ('$env:CLAUDE_CONFIG_DIR="%s"; claude' if ps.IS_WIN else 'CLAUDE_CONFIG_DIR="%s" claude') % folder
             try:
                 self.root.clipboard_clear()
                 self.root.clipboard_append(cmd)
             except tk.TclError:
                 pass
-            messagebox.showinfo("Sign in once", "No login found in that folder yet.\n\nOpen a terminal, paste "
-                                "this (already copied to your clipboard), then type /login and sign in with the "
-                                "account for '%s':\n\n%s" % (name, cmd))
+            messagebox.showinfo("Sign in once", "No login in that folder yet.\n\nOpen a terminal, paste this "
+                                "(already copied to your clipboard), type /login and sign in with the account you "
+                                "want to track:\n\n%s" % cmd)
         if not self.cfg["limits_api"] and messagebox.askyesno(
-                "Usage limits", "Fetch real limits from Anthropic using this login?\n(Reads the login token in "
-                "that folder; read-only requests to api.anthropic.com.)"):
+                "Usage limits", "Fetch real limits from Anthropic using these logins?\n(Reads the login token in "
+                "the folder; read-only requests to api.anthropic.com.)"):
             self.toggle_limits_api()
+        self._wake.set()
 
     def rename_account(self):
-        a = self.acct()
+        a = self.active()
         new = (simpledialog.askstring("Rename account", "New name:", parent=self.root,
                                       initialvalue=a["name"]) or "").strip()
-        if new and new != a["name"] and new not in [x["name"] for x in self.cfg["accounts"]]:
-            self.api[new] = self.api.pop(a["name"], {})
-            a["name"] = self.cfg["account"] = new
+        if new:
+            self.cfg["names"][a["id"]] = new
             self.save()
+            self.refresh_accounts()
 
-    def remove_account(self):
-        a = self.acct()
-        if len(self.cfg["accounts"]) > 1 and messagebox.askyesno(
-                "Remove account", "Remove '%s' from the pet? (Its Claude login is not touched.)" % a["name"]):
-            self.cfg["accounts"].remove(a)
-            self.switch_account(self.cfg["accounts"][0]["name"])
+    def remove_login(self):
+        a = self.active()
+        if a["dir"] and messagebox.askyesno(
+                "Remove login", "Stop using the login folder for '%s'?\n(The folder and its login are not "
+                "touched.)" % a["name"]):
+            self.cfg["logins"] = [m for m in self.cfg["logins"] if m["dir"] != a["dir"]]
+            self.switch_account("auto")
+            self.refresh_accounts()
 
     # ---- menu
     def set_pet(self, key):
@@ -486,70 +540,58 @@ class PetApp:
     def set_forced(self, v):
         self.forced = v
 
-    def on_menu(self, e):
-        m = tk.Menu(self.root, tearoff=0)
-        am = tk.Menu(m, tearoff=0)
-        av = tk.StringVar(value=self.cfg["account"])
-        for a in self.cfg["accounts"]:
-            ai = self.api.get(a["name"], {})
-            label = a["name"] + ("  (%s)" % ai["email"] if ai.get("email") else "")
-            am.add_radiobutton(label=label, variable=av, value=a["name"],
-                               command=lambda n=a["name"]: self.switch_account(n))
-        am.add_separator()
-        am.add_command(label="Add account...", command=self.add_account)
-        am.add_command(label="Rename current...", command=self.rename_account)
-        if len(self.cfg["accounts"]) > 1:
-            am.add_command(label="Remove current...", command=self.remove_account)
-        m.add_cascade(label="Account: " + self.cfg["account"], menu=am)
-        pets = tk.Menu(m, tearoff=0)
-        pv = tk.StringVar(value=self.cfg["pet"])
-        for k, spec in sprites.PETS.items():
-            pets.add_radiobutton(label=spec["name"], variable=pv, value=k, command=lambda k=k: self.set_pet(k))
-        m.add_cascade(label="Pet", menu=pets)
-        sizes = tk.Menu(m, tearoff=0)
-        sv = tk.IntVar(value=self.cfg["scale"])
-        for label, n in (("Small", 2), ("Medium", 3), ("Large", 4), ("Huge", 5)):
-            sizes.add_radiobutton(label=label, variable=sv, value=n, command=lambda n=n: self.set_scale(n))
-        m.add_cascade(label="Size", menu=sizes)
-        uv = tk.BooleanVar(value=self.cfg["show_usage"])
-        m.add_checkbutton(label="Show usage", variable=uv, command=self.toggle_usage)
-        vm = tk.Menu(m, tearoff=0)
-        vv = tk.StringVar(value=self.cfg.get("usage_view", "rotate"))
-        for label, v in VIEWS:
-            vm.add_radiobutton(label=label, variable=vv, value=v, command=lambda v=v: self.set_view(v))
-        m.add_cascade(label="Usage view (click the card to switch)", menu=vm)
-        lv = tk.BooleanVar(value=self.cfg["limits_api"])
-        m.add_checkbutton(label="Fetch real limits from Anthropic (uses your Claude login)", variable=lv,
-                          command=self.toggle_limits_api)
-        st = self.api.get(self.cfg["account"], {}).get("status")
-        if self.cfg["limits_api"] and st not in (None, "ok"):
-            m.add_command(label="   limits: " + st, state="disabled")
+    def menu_items(self):
+        act, sel = self.active(), self.selection()
+        info = self.api.get(act["id"], {})
+        acc = [("radio", "Auto \u2013 follow the active session", sel == "auto", lambda: self.switch_account("auto"))]
+        for a in self.accts:
+            label = a["name"] + ("   " + a["email"] if a["email"] else "")
+            acc.append(("radio", label, sel == a["id"], lambda i=a["id"]: self.switch_account(i)))
+        acc += [("sep",), ("item", "Add / link a login folder...", self.add_account),
+                ("item", "Rename current...", self.rename_account)]
+        if act["dir"]:
+            acc.append(("item", "Remove login folder...", self.remove_login))
+        items = [("sub", "Account: %s%s" % (act["name"], "  (auto)" if sel == "auto" else ""), acc)]
+
+        items.append(("sub", "Pet", [("radio", spec["name"], self.cfg["pet"] == k, lambda k=k: self.set_pet(k))
+                                      for k, spec in sprites.PETS.items()]))
+        items.append(("sub", "Size", [("radio", lb, self.cfg["scale"] == n, lambda n=n: self.set_scale(n))
+                                       for lb, n in (("Small", 2), ("Medium", 3), ("Large", 4), ("Huge", 5))]))
+        items.append(("sep",))
+        items.append(("check", "Show usage", self.cfg["show_usage"], self.toggle_usage))
+        items.append(("sub", "Usage view", [("radio", lb, self.cfg.get("usage_view", "rotate") == v,
+                                              lambda v=v: self.set_view(v)) for lb, v in VIEWS]))
+        items.append(("check", "Fetch real limits (uses Claude login)", self.cfg["limits_api"], self.toggle_limits_api))
+        notes = []
         if self.limits:
             for label, (pct, reset) in self.limits.items():
-                t = "%s limit: %d%% used" % (label, round(pct))
-                if reset:
-                    t += ", resets in " + usage.fmt_delta(reset - time.time())
-                m.add_command(label="   " + t, state="disabled")
-        elif self.tokens:
-            m.add_command(label="   Local tokens 5h: %s | 7d: %s (no limit data yet)" % (
-                usage.fmt_tokens(self.tokens.get("5h", 0)), usage.fmt_tokens(self.tokens.get("7d", 0))),
-                state="disabled")
-        m.add_separator()
-        tests = tk.Menu(m, tearoff=0)
-        fv = tk.StringVar(value=self.forced or "")
-        for label, v in STATE_LABELS:
-            tests.add_radiobutton(label=label, variable=fv, value=v or "", command=lambda v=v: self.set_forced(v))
-        m.add_cascade(label="Preview animation", menu=tests)
-        m.add_command(label="Snap to taskbar / Dock", command=self.reset_position)
-        sv2 = tk.BooleanVar(value=ps.startup_enabled())
-        m.add_checkbutton(label="Start at login", variable=sv2, command=self.toggle_startup)
-        m.add_separator()
-        m.add_command(label="Quit", command=self.root.destroy)
-        try:
-            m.tk_popup(e.x_root, e.y_root)
-        finally:
-            m.grab_release()
+                t = "%s: %d%% used" % ("5-hour" if label == "5h" else "Weekly", round(pct))
+                notes.append(t + (", resets in " + usage.fmt_delta(reset - time.time()) if reset else ""))
+        elif info.get("status") == "no login":
+            notes.append("No readable login for this account:")
+            notes.append("link a CLI login folder to see its limits")
+        elif self.cfg["limits_api"] and info.get("status") not in (None, "ok"):
+            notes.append("limits: " + info["status"])
+        elif not self.cfg["limits_api"]:
+            notes.append("Tokens 5h %s \u00b7 7d %s" % (usage.fmt_tokens(self.tokens.get("5h", 0)),
+                                                         usage.fmt_tokens(self.tokens.get("7d", 0))))
+        items += [("label", n) for n in notes]
+        items.append(("sep",))
+        items.append(("sub", "Preview animation", [("radio", lb, (self.forced or None) == v,
+                                                    lambda v=v: self.set_forced(v)) for lb, v in STATE_LABELS]))
+        items.append(("item", "Snap to taskbar / Dock", self.reset_position))
+        items.append(("check", "Start at login", ps.startup_enabled(), self.toggle_startup))
+        items.append(("sep",))
+        items.append(("item", "Quit", self.root.destroy))
+        return items
 
+    def on_menu(self, e):
+        if self.menu:
+            self.menu.close()
+        self.menu_open = True
+        self.menu = Menu(self.root, self.theme, avoid=(self.x, self.y, self.x + self.w, self.y + self.h),
+                         on_close=lambda: setattr(self, "menu_open", False))
+        self.menu.open(self.menu_items(), e.x_root, e.y_root)
 
 def main():
     ps.init_process()

@@ -67,21 +67,24 @@ def fmt_delta(secs):
 class LocalTokens:
     """Incrementally scans transcripts; call scan() from a background thread."""
 
-    def __init__(self):
+    def __init__(self, root=None):
+        self.root = Path(root) if root else PROJECTS
         self._offsets = {}      # path -> (size_read)
         self._msgs = {}         # message key -> (epoch, tokens)
 
     def scan(self):
-        if not PROJECTS.exists():
+        if not self.root.exists():
             return
         cutoff = time.time() - WEEK
-        for p in PROJECTS.rglob("*.jsonl"):
+        for p in self.root.rglob("*.jsonl"):
             try:
                 st = p.stat()
             except OSError:
                 continue
             if st.st_mtime < cutoff:
                 continue
+            # transcript id = file name; sub-agent files live in <session>/subagents/
+            sid = p.parent.parent.name if p.parent.name == "subagents" else p.stem
             start = self._offsets.get(p, 0)
             if st.st_size < start:
                 start = 0
@@ -112,12 +115,16 @@ class LocalTokens:
                 key = (m.get("id") or "") + (o.get("requestId") or "") or id(o)
                 old = self._msgs.get(key)
                 if not old or n > old[1]:
-                    self._msgs[key] = (ts, n)
+                    self._msgs[key] = (ts, n, sid)
 
-    def totals(self):
+    def totals(self, owner=None, account=None, default=None):
+        """Token sums for the last 5h / 7d. With owner ({session id: account id}) only that account's
+        sessions count; sessions the owner map doesn't know belong to `default`."""
         now = time.time()
         five = week = 0
-        for ts, n in self._msgs.values():
+        for ts, n, sid in list(self._msgs.values()):
+            if account is not None and owner is not None and owner.get(sid, default) != account:
+                continue
             if now - ts <= WEEK:
                 week += n
                 if now - ts <= 5 * 3600:
